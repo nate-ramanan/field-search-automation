@@ -1,0 +1,14 @@
+psycopg2
+pandas
+configparser
+ultralytics
+numpy
+pillow
+opencv-python
+requests
+pyyaml
+pyproj
+openpyxl
+tensorflow
+datetime
+tf_keras

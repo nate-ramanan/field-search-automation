@@ -1,0 +1,6 @@
+path: C:\Users\talib\OneDrive\Desktop\GamePlay\FieldDetection\infieldDetection\testImg
+train: C:\Users\talib\OneDrive\Desktop\GamePlay\FieldDetection\infieldDetection\testImg\train\images # train images (relative to 'path') 128 images
+val: C:\Users\talib\OneDrive\Desktop\GamePlay\FieldDetection\infieldDetection\testImg\val\images # val images (relative to 'path') 128 images
+
+nc: 1
+names: ["1"]
