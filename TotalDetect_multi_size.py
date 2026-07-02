@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import datetime
 from configparser import ConfigParser
+import tensorflow as tf
 from tf_keras.models import load_model
 import gc
 import shutil
@@ -39,6 +40,52 @@ BATCH_SIZE = 8
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
+
+
+class _SavedModelPredictor:
+    """
+    Minimal Keras-like wrapper for legacy TensorFlow SavedModel exports.
+
+    Keras 3 does not load SavedModel directories via load_model(), but the
+    exported models in this workspace still expose a serving_default signature.
+    This wrapper gives us a .predict() method with the same shape semantics used
+    by the rest of the pipeline.
+    """
+
+    def __init__(self, model_path: str):
+        self._model = tf.saved_model.load(model_path)
+        signature_names = list(self._model.signatures.keys())
+        if not signature_names:
+            raise ValueError(f"No signatures found in SavedModel: {model_path}")
+        self._signature = self._model.signatures.get("serving_default", self._model.signatures[signature_names[0]])
+        self._input_name = next(iter(self._signature.structured_input_signature[1].keys()))
+        structured_outputs = self._signature.structured_outputs
+        self._output_name = next(iter(structured_outputs.keys())) if isinstance(structured_outputs, dict) else None
+
+    def predict(self, batch_images, verbose=0):
+        del verbose
+        batch_images = np.asarray(batch_images, dtype=np.float32)
+        outputs = self._signature(**{self._input_name: batch_images})
+        if isinstance(outputs, dict):
+            if self._output_name and self._output_name in outputs:
+                output = outputs[self._output_name]
+            else:
+                output = next(iter(outputs.values()))
+        else:
+            output = outputs
+        return output.numpy()
+
+
+def _load_compat_model(model_path: str):
+    try:
+        return load_model(model_path)
+    except Exception as exc:
+        print(f"[WARN] Falling back to SavedModel inference wrapper for {model_path}: {exc}")
+        return _SavedModelPredictor(model_path)
+
+
+def _model_predict(model, batch_images):
+    return model.predict(batch_images, verbose=0) if hasattr(model, "predict") else model(batch_images)
 
 def _list_image_files(directory: str):
     if not os.path.isdir(directory):
@@ -111,8 +158,8 @@ def Classification(small_image_dir_path: str,
             'predicted_sport_type_probability'
         ])
 
-    type_model = load_model(cls_type_model_path)
-    sport_model = load_model(cls_sport_model_path)
+    type_model = _load_compat_model(cls_type_model_path)
+    sport_model = _load_compat_model(cls_sport_model_path)
     print(f'Finished loading classification models for SMALL images. Processing {len(matched_images)} matched images.', flush=True)
 
     num_images = len(matched_images)
@@ -223,8 +270,8 @@ def Classification_large(large_image_dir_path: str,
             'large_predicted_sport_type_probability'
         ])
 
-    type_model = load_model(cls_type_model_path)
-    sport_model = load_model(cls_sport_model_path)
+    type_model = _load_compat_model(cls_type_model_path)
+    sport_model = _load_compat_model(cls_sport_model_path)
     print(f'Finished loading classification models for LARGE images. Processing {len(matched_images)} matched images.', flush=True)
 
     num_images = len(matched_images)

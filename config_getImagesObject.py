@@ -27,14 +27,19 @@ def get_field_data(pool):
         
         while True:
             cur.execute("""
-                SELECT * FROM (
-                SELECT search_sport_type, field_name, obj.image_url as field_map, nge.field_search_id as field_id, sport_name, obj.nge_object_id
+                SELECT
+                    nge.search_sport_type,
+                    nge.field_name,
+                    obj.image_url as field_map,
+                    nge.field_search_id as field_id,
+                    obj.sport_name,
+                    obj.nge_object_id
                 FROM public.new_google_earth nge
-                JOIN nge_object obj ON obj.field_search_id = nge.field_search_id
-                UNION
-                SELECT search_sport_type, field_name, gearth_link as field_map, nge.field_search_id as field_id, 'orig' as sport_name, null as nge_object_id
-                FROM public.new_google_earth nge
-                ) AS combined
+                INNER JOIN public.nge_object obj
+                    ON obj.field_search_id = nge.field_search_id
+                WHERE obj.nge_object_id IS NOT NULL
+                  AND obj.sport_name IN ('Baseball', 'Basketball', 'Golf', 'Soccer', 'Stadium', 'Tennis')
+                ORDER BY nge.field_search_id, obj.nge_object_id
                 LIMIT %s OFFSET %s
                 """, (batch_size, offset))
 

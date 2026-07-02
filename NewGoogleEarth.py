@@ -14,7 +14,6 @@ from ultralytics import YOLO
 from io import BytesIO
 from PIL import Image
 from config_getImages import get_field_data
-#from soccerdetect import field_mask
 from ConnectionPool import pool
 
 #set up the config file
@@ -369,12 +368,18 @@ def fetch_zip_codes(city, state_code):
         cur = conn.cursor()
 
         query = """
-        SELECT postal_code FROM public.postal_code pc
+        SELECT pc.postal_code
+        FROM public.postal_code pc
         JOIN state_province sp ON sp.state_id = pc.state_id
-        WHERE UPPER(pc.city) = %s AND sp.state_code = %s
-        AND postal_code NOT IN (
-            SELECT postal_code FROM maps_api_log WHERE city = %s AND state = %s
-        )
+        WHERE UPPER(pc.city) = %s
+          AND sp.state_code = %s
+          AND NOT EXISTS (
+              SELECT 1
+              FROM maps_api_log mal
+              WHERE mal.city = %s
+                AND mal.state = %s
+                AND mal.zip_code = pc.postal_code
+          )
         """
         cur.execute(query, (city.upper().strip(), state_code, city.upper().strip(), state_code))
         zip_codes = [row[0] for row in cur.fetchall()]
@@ -550,28 +555,35 @@ def delete_duplicates():
         conn = pool.getconn()
         cur = conn.cursor()
 
-        print("Deleting duplicates by (gplace_id, field_name, gps_location, object_sport)")
+        print("Deleting duplicates by (gplace_id, field_name, gps_location)")
         delete_query = """
-            DELETE FROM public.new_google_earth
-            WHERE ctid IN (
-                SELECT ctid
-                FROM (
-                    SELECT ctid,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY
-                                   COALESCE(gplace_id, ''),
-                                   COALESCE(field_name, ''),
-                                   COALESCE(gps_location, ''),
-                                   COALESCE(object_sport, '')
-                               ORDER BY ctid
-                           ) AS rn
-                    FROM public.new_google_earth
-                ) t
-                WHERE t.rn > 1
-            );
+        WITH ranked AS (
+    SELECT
+        field_search_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                COALESCE(gplace_id, ''),
+                COALESCE(field_name, ''),
+                COALESCE(gps_location, '')
+            ORDER BY field_search_id
+        ) AS rn
+    FROM public.new_google_earth
+),
+duplicate_ids AS (
+    SELECT field_search_id FROM ranked WHERE rn > 1
+),
+deleted_objects AS (
+    DELETE FROM public.nge_object
+    WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids)
+    RETURNING field_search_id
+)
+DELETE FROM public.new_google_earth
+WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids);
         """
         cur.execute(delete_query)
+        rows_deleted = cur.rowcount
         conn.commit()
+        print(f"Deleted {rows_deleted} duplicate rows.")
 
     except Exception as error:
         print("Error during database operation")
@@ -636,6 +648,8 @@ if __name__ == "__main__":
                     'modified_fields': []
                 }
                 schools_locations.append(school_dict)
+
+            seen_gplace_ids = set()
                 
             for sport, sport_type_id in sport_types.items():
                 print(f"Fetching fields for {sport} in {city}, {state_code} for zip code {zip_code}")
@@ -645,9 +659,14 @@ if __name__ == "__main__":
                 fields_from_search = parse_fields(xml_data, sport_type_id)
                 
                 for field in fields_from_search:
-                    print(f"Processing field: {field['field_name']} at {field['original_gps_location']}")
-                    
-                all_fields.extend(fields_from_search)
+                    gplace_id = field.get('gplace_id')
+                    if gplace_id and gplace_id in seen_gplace_ids:
+                        print(f"Skipping duplicate facility: {field['field_name']}")
+                        continue
+                    if gplace_id:
+                        seen_gplace_ids.add(gplace_id)
+                    all_fields.append(field)
+
             if all_fields:
                 save_field_data(all_fields)
                 log_processed(state_code, city, zip_code)

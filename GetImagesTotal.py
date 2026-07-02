@@ -39,6 +39,8 @@ display_names = {
     4: 'Baseball', 5: 'Basketball', 9: 'Golf',
     10: 'Soccer', 14: 'Stadium', 16: 'Tennis'
 }
+ALLOWED_SPORT_NAMES = {'Baseball', 'Basketball', 'Golf', 'Soccer', 'Stadium', 'Tennis'}
+ALLOWED_SPORT_CLASS_IDS = {4, 5, 9, 10, 14, 16}
 
 # This function gets the latitude and longitude from the google earth link 
 def gpsLocation(link):
@@ -92,12 +94,24 @@ def saveImg(image_url, save_path, crop_bottom):
     except Exception as e:
         print(f"Error saving image from {image_url} to {save_path}: {e}")
 
+def _safe_object_id_str(nge_object_id):
+    try:
+        return str(int(float(nge_object_id)))
+    except (TypeError, ValueError):
+        return None
+
 def ProcessImage(current_map,small_img_paths,current_field_id,current_name,large_img_paths,df_error,sport_name, nge_object_id):
     if current_map:
 
         try:
             lat, lon = gpsLocation(current_map)
-            obj_id_str = str(nge_object_id) if nge_object_id is not None else 'orig'
+            obj_id_str = _safe_object_id_str(nge_object_id)
+            if obj_id_str is None:
+                print(f"Skipping field_id {current_field_id} because nge_object_id is missing or invalid.")
+                return df_error
+            if sport_name not in ALLOWED_SPORT_NAMES:
+                print(f"Skipping unsupported sport label for field_id {current_field_id}: {sport_name}")
+                return df_error
             save_path_small = small_img_paths + '/' + obj_id_str + '_' + str(current_field_id) + '_' + sport_name + '.png'
             # Use the newly centered GPS location for the next image grabs
             if ('Basketball' in sport_name) or ('Tennis' in sport_name):
@@ -192,36 +206,16 @@ if __name__ == '__main__':
         nge_object_id = row['nge_object_id']
 
         print(f"Processing field: {current_name}, field_id: {current_field_id}, field_map: {current_map}")
-    
-        if sport_name!='orig':
-            print(f"Processing detected facility: {current_name}, field_id: {current_field_id}, sport_name: {sport_name}")
-            df_error = ProcessImage(current_map, small_img_paths, current_field_id, current_name, large_img_paths, df_error, sport_name, nge_object_id)
-            processed += 1
-            print(f"Processed {processed} of {df[df['sport_name']!='orig'].shape[0]} detected facilities")
-        
-        elif sport_name == 'orig':
-            print(f"Re-checking raw facility: {current_name}, field_id: {current_field_id} (needs detection)")
-            lat, lon = gpsLocation(current_map)
-            # Download the image for detection (use large dimensions for best accuracy)
-            image_url = getImage(lat, lon, KEY, 18, LARGE_IMG_WIDTH, LARGE_IMG_HEIGHT)
-            image_data = urllib.request.urlopen(image_url).read()
-            image = cv2.imdecode(np.frombuffer(image_data, np.uint8), cv2.IMREAD_COLOR)
-            # Run YOLO model detection
-            results = obd_model.predict(image)
-            # Assign sport_name if detected (choose the best or most confident class)
-            detected_names = []
-            for res in results:
-                for box in res.boxes:
-                    class_id = int(box.cls)
-                    detected_names.append(class_id)
-            # Assign sport_name and update DB (choose logic; here, pick most frequent class)
-            if detected_names:
-                assigned_class = max(set(detected_names), key=detected_names.count)
-                assigned_sport_name = display_names.get(assigned_class, f"Unknown Field Type {assigned_class}")
-                print(f"Detected and assigned sport: {assigned_sport_name} for field_id {current_field_id}")
-                df_error = ProcessImage(current_map, small_img_paths, current_field_id, current_name, large_img_paths, df_error, assigned_sport_name, nge_object_id)
-            else:
-                print(f"No sport detected for field_id {current_field_id}")
+        if sport_name not in ALLOWED_SPORT_NAMES:
+            print(f"Skipping unsupported detected sport for field_id {current_field_id}: {sport_name}")
+            continue
+        if pd.isna(nge_object_id):
+            print(f"Skipping field_id {current_field_id} because nge_object_id is missing.")
+            continue
+        print(f"Processing detected facility: {current_name}, field_id: {current_field_id}, sport_name: {sport_name}")
+        df_error = ProcessImage(current_map, small_img_paths, current_field_id, current_name, large_img_paths, df_error, sport_name, nge_object_id)
+        processed += 1
+        print(f"Processed {processed} of {df.shape[0]} detected facilities")
 
     df_error.to_excel(getImage_total_error)
     print(f"Errors saved to: {getImage_total_error}")
