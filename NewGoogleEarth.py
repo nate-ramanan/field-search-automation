@@ -1,6 +1,5 @@
 import cv2
 import requests
-import xml.etree.ElementTree as ET
 import psycopg2
 import pandas as pd
 from configparser import ConfigParser
@@ -14,22 +13,21 @@ from ultralytics import YOLO
 from io import BytesIO
 from PIL import Image
 from config_getImages import get_field_data
-#from soccerdetect import field_mask
 from ConnectionPool import pool
 
-#set up the config file
+# Set up the config file
 KEY = 'AIzaSyC5cT2KgRuUuz51GQ71DvY8gB_VN8O8EtE'
-file = r'c:\Users\owner\Documents\Gameplay_FieldAutomation_full_v3\Gameplay_FieldAutomation_full_v3\config.ini'
+file = r'D:\Gameplay_FieldAutomation_full_v3\config.ini'
 config = ConfigParser()
 config.read(file)
-print(config.sections())                      
-print(dict(config.items('model_paths')))      
+print("Loaded Config Sections:", config.sections())                      
+print("Model Paths Config:", dict(config.items('model_paths')))      
 
-#configure the object detection model
-obd_model_path = config.get('model_paths','obd_model')
+# Configure the object detection model
+obd_model_path = config.get('model_paths', 'obd_model')
 obd_model = YOLO(obd_model_path, verbose=False)
 
-#configure the display names for the object detection model
+# Configure the display names for the object detection model
 display_names = {
     0: 'Expressway-Service-area', 1: 'Expressway-toll-station', 2: 'airplane',
     3: 'airport', 4: 'Baseball', 5: 'Basketball',
@@ -40,78 +38,137 @@ display_names = {
     19: 'windmill'
 }
 
-#function to get the satellite image from the latitude and longitude
+# Mapping internal workflow IDs to OpenStreetMap/Overpass standard tags
+SPORT_TAGS = {
+    8: "baseball",
+    9: "basketball",
+    79: "soccer",
+    87: "tennis",
+    90: "volleyball"
+}
+
 def getImage(lat, lon, key, zoom, width, height):
-    """Generates the URL for a small satellite image."""
+    """Generates the URL for a small satellite image via Google Static Maps."""
     if lat != 'Error' and lon != 'Error':
         url = "https://maps.googleapis.com/maps/api/staticmap?key={}&center={},{}&zoom={}&size={}x{}&maptype=satellite".format(
-            key,
-            lat,
-            lon,
-            zoom,
-            width,
-            height
+            key, lat, lon, zoom, width, height
         )
         return url
     else:
         return 'Error'
 
-#function to get the satellite image array from the latitude and longitude
 def get_satellite_image_array(gps_location, zoom_level=18, size=(800, 850)):
-    """
-    Uses the getImage function to get a URL and then fetches the image
-    data, returning it as a NumPy array.
-    """
+    """Fetches image raw bytes using coordinates and turns it into a NumPy Array."""
     lat = gps_location['latitude']
     lon = gps_location['longitude']
-    
     image_url = getImage(lat, lon, KEY, zoom_level, size[0], size[1])
-    
     if image_url == 'Error':
         print("Error: Could not generate image URL.")
         return None
-        
     try:
-        response = requests.get(image_url)
+        response = requests.get(image_url, headers={"User-Agent": "SportsFacilityFinder/1.0"})
         response.raise_for_status()
-        
         img = Image.open(BytesIO(response.content))
-        
-        # Explicitly convert the image to RGB if it's not already
         if img.mode != 'RGB':
             img = img.convert('RGB')
-            
-        img_array = np.array(img)
-        return img_array
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching satellite image from URL: {e}")
-        return None
+        return np.array(img)
     except Exception as e:
-        print(f"Error processing image: {e}")
+        print(f"Error fetching/processing satellite image: {e}")
         return None
 
-#function to get the fields from the google maps api
-#query is the query to the google maps api
-#returns the text response from the google maps api
-def get_fields(query: str):
-    url = f"https://maps.googleapis.com/maps/api/place/textsearch/xml?key={KEY}&query={query}"
-    print(f"Fetching data from URL: {url}")
-    response = requests.get(url)
-    print(f"Received response with status code: {response.status_code}")
-    return response.text
+def fetch_zip_bbox_via_photon(zip_code, state_code):
+    """Uses Photon API Geocoder to extract a clean bounding box for the ZIP area."""
+    url = "https://photon.komoot.io/api/"
+    params = {"q": f"{zip_code}, {state_code}, United States", "limit": 1}
+    try:
+        print(f"Resolving boundary box via Photon for ZIP: {zip_code}")
+        res = requests.get(url, params=params, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+        if data.get("features"):
+            feat = data["features"][0]
+            extent = feat.get("properties", {}).get("extent")
+            if extent and len(extent) == 4:
+                # Photon order: [minLon, minLat, maxLon, maxLat]
+                # Overpass expects: (minLat, minLon, maxLat, maxLon)
+                return (extent[1], extent[0], extent[3], extent[2])
+    except Exception as e:
+        print(f"Photon bounding geocoding failed: {e}")
+    return None
 
-def object_detection_based_modification_by_class(field_search_id,img_array, obd_model, original_gps_location, target_class_ids, zoom_level):
-    '''
-    Function to modify gps_location by concentrating on the average center of fields detected
-    by class ID. This version returns a list of GPS locations, one for each field type.
-    '''
+def get_fields_from_overpass(bbox, sport_name):
+    """Executes structured Qlever/Overpass interpreter queries over a localized area."""
+    endpoint = "https://overpass-api.de/api/interpreter"
+    min_lat, min_lon, max_lat, max_lon = bbox
+    
+    # Overpass Query targeting both pitches and active sport markers
+    query = f"""
+    [out:json][timeout:30];
+    (
+      nwr["leisure"="pitch"]["sport"="{sport_name}"]({min_lat},{min_lon},{max_lat},{max_lon});
+      nwr["leisure"="stadium"]["sport"="{sport_name}"]({min_lat},{min_lon},{max_lat},{max_lon});
+    );
+    out center;
+    """
+    try:
+        print(f"Querying Overpass for sport: {sport_name}")
+        response = requests.post(endpoint, data={"data": query}, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Overpass API evaluation failed for {sport_name}: {e}")
+        return {"elements": []}
+
+def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
+    """Normalizes unstructured OpenStreetMap Nodes, Ways, and Relations into the schema."""
+    fields = []
+    elements = osm_data.get("elements", [])
+    for el in elements:
+        tags = el.get("tags", {})
+        
+        # Calculate coordinate tracking based on element structure types
+        if "center" in el:
+            lat = el["center"]["lat"]
+            lon = el["center"]["lon"]
+        elif "lat" in el and "lon" in el:
+            lat = el["lat"]
+            lon = el["lon"]
+        else:
+            continue # Incomplete spatial mapping metadata
+            
+        el_type = el.get("type", "node")
+        el_id = el.get("id", 0)
+        osm_pseudo_id = f"osm/{el_type}/{el_id}"
+        
+        # Standard fallback string generations if data properties are empty
+        raw_name = tags.get("name", tags.get("description", f"OSM {tags.get('leisure', 'Facility')} Location"))
+        street = tags.get("addr:street", "")
+        house_num = tags.get("addr:housenumber", "")
+        formatted_address = f"{house_num} {street}, {city}, {state} {postal_code}".strip(", ")
+        
+        field = {
+            'field_name': raw_name,
+            'formatted_address': formatted_address,
+            'postal_code': postal_code,
+            'street': f"{house_num} {street}".strip(),
+            'city': city,
+            'state': state,
+            'original_gps_location': {'latitude': float(lat), 'longitude': float(lon)},
+            'gplace_id': osm_pseudo_id, # Safely maps to the unique constraint column key
+            'search_sport_type': search_sport_type,
+            'gearth_link': f"https://earth.google.com/web/@{lat},{lng},4.1972381a,15000d" if 'lng' in locals() else f"https://earth.google.com/web/@{lat},{lon},4.1972381a,15000d",
+            'modified_fields': []
+        }
+        fields.append(field)
+    return fields
+
+def object_detection_based_modification_by_class(field_search_id, img_array, obd_model, original_gps_location, target_class_ids, zoom_level):
     try:
         results = obd_model.predict(source=img_array, save=False, conf=0.45, iou=0.65, stream=False)
     except Exception as e:
         print(f"Error during object detection: {e}")
         return []
 
-    grouped_boxes = collections.defaultdict(list)
     new_gps_locations = []
     if results and results[0].boxes is not None:
         height, width, _ = img_array.shape
@@ -121,22 +178,19 @@ def object_detection_based_modification_by_class(field_search_id,img_array, obd_
             if class_id in target_class_ids:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 new_coordinates, ground_resolutions = recenter_image(x1, x2, y1, y2, original_center, original_gps_location, zoom_level)
-                #new_img = get_satellite_image_array(new_coordinates)
-                #new_height, new_width, _ = new_img.shape
-                #new_center = (new_width // 2, new_height // 2)
-                #finals_coordinates = recenter_image(x1, x2, y1, y2, new_center, new_coordinates, zoom_level)
-                box_description = "box: (x1, y1) = (" + str(x1) + ',' + str(y1) + "), (x2, y2) = (" + str(x2) + ',' + str(2) + "), width = " + str(x2 - x1) + " height = " + str(y2 - y1)
-                image_description = "image: width = " + str(width) + ", height = " + str(height)
-                ground_resolution_description = "original_ground_resolution = " + str(ground_resolutions['old_ground_resolution']) + ", new ground_resolution = " + str(ground_resolutions['new_ground_resolution'])
-                description = box_description + ' ' + image_description + ' ' + ground_resolution_description + " new_gps_location: " + str(new_coordinates['latitude']) + ", " + str(new_coordinates['longitude'])
-                final_gps_location = {'field_search_id':field_search_id, 'class_id': class_id, 'description': description }
+                
+                box_description = f"box: (x1, y1) = ({x1},{y1}), (x2, y2) = ({x2},{y2}), dim = {x2 - x1}x{y2 - y1}"
+                image_description = f"image: size = {width}x{height}"
+                ground_res_desc = f"old_res = {ground_resolutions['old_ground_resolution']:.4f}, new_res = {ground_resolutions['new_ground_resolution']:.4f}"
+                description = f"{box_description} {image_description} {ground_res_desc} new_gps: {new_coordinates['latitude']},{new_coordinates['longitude']}"
+                
+                final_gps_location = {'field_search_id': field_search_id, 'class_id': class_id, 'description': description}
                 final_gps_location.update(new_coordinates)            
                 new_gps_locations.append(final_gps_location)        
     return new_gps_locations
 
 def recenter_image(x1, x2, y1, y2, original_center, original_gps_location, zoom_level):
     new_center = ((x1 + x2) // 2, (y1 + y2) // 2)
-                #original center = center of google earth image with latitude and longitude given by google
     offset_x = (new_center[0] - original_center[0])
     offset_y = (new_center[1] - original_center[1])
 
@@ -156,185 +210,82 @@ def recenter_image(x1, x2, y1, y2, original_center, original_gps_location, zoom_
 
     transformer_3857_to_4326 = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
     new_lon, new_lat = transformer_3857_to_4326.transform(new_x_3857, new_y_3857)
-    new_coordinates = {'latitude': float(new_lat), 'longitude': float(new_lon)}
-    ground_resolutions = {'old_ground_resolution': old_ground_resolution, 'new_ground_resolution': ground_resolution}
-
-    return new_coordinates, ground_resolutions
-
-def parse_fields(xml_data: str, search_sport_type: int):
-    print("Parsing XML data")
-    root = ET.fromstring(xml_data)
-    fields = []
-    for result in root.findall('result'):
-        address = result.find('formatted_address').text
-        address_parts = address.split(',')
-
-        if len(address_parts) >= 3:
-            street = address_parts[0].strip()
-            city = address_parts[-3].strip()
-            state_postal = address_parts[-2].strip().split()
-            state = state_postal[0]
-            postal_code = state_postal[1] if len(state_postal) > 1 else None
-        else:
-            street, city, state, postal_code = None, None, None, None
-        
-        lat = result.find('.//location/lat').text
-        lng = result.find('.//location/lng').text
-        
-        field = {
-            'field_name': result.find('name').text,
-            'formatted_address': address,
-            'postal_code': postal_code,
-            'street': street,
-            'city': city,
-            'state': state,
-            'original_gps_location': {'latitude': float(lat), 'longitude': float(lng)},
-            'gplace_id': result.find('place_id').text,
-            'search_sport_type': search_sport_type,
-            'gearth_link': f"https://earth.google.com/web/@{lat},{lng},4.1972381a,15000d",
-            'modified_fields': []
-        }
-        fields.append(field)
-    return fields
+    return {'latitude': float(new_lat), 'longitude': float(new_lon)}, {'old_ground_resolution': old_ground_resolution, 'new_ground_resolution': ground_resolution}
 
 def save_object_data(fields):
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return
-    conn = None
-    cur = None
-
+    if 'database' not in config: return
+    conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
-
         all_values = []
-
         for field in fields:
             class_id = field['class_id']
             field_type_name = display_names.get(class_id, f'Unknown Field Type {class_id}')
             new_gps_str = f"{field['latitude']},{field['longitude']}"
             all_values.append(cur.mogrify("(%s,%s,%s,%s)", (
-                field['field_search_id'],
-                field_type_name ,
-                f"https://earth.google.com/web/@{new_gps_str},4.1972381a,15000d",
-                field['description'])).decode('utf-8')
-            )
+                field['field_search_id'], field_type_name,
+                f"https://earth.google.com/web/@{new_gps_str},4.1972381a,15000d", field['description'])
+            ).decode('utf-8'))
         if all_values:
-            query = """
-                    INSERT INTO public.nge_object (field_search_id, sport_name, image_url, description) \
-                    VALUES %s \
-                    """
-            final_query = query % ",".join(all_values)
-            print(f"Executing bulk insert for {len(all_values)} fields")
-            cur.execute(final_query)
+            query = "INSERT INTO public.nge_object (field_search_id, sport_name, image_url, description) VALUES %s"
+            cur.execute(query % ",".join(all_values))
             conn.commit()
-        else:
-            print("No objects to save.")
-
+            print(f"Successfully bulk inserted {len(all_values)} object analysis entries.")
     except Exception as error:
-        print("Error during database operation")
-        print(error)
-
+        print("Error during database save_object_data execution:", error)
     finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
 
 def save_field_data(fields):
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return
-    
-    conn = None
-    cur = None
-
+    if 'database' not in config: return
+    conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
-
         all_values = []
         for field in fields:
             if not field['modified_fields']:
-                # If no fields were detected, save the original location
                 all_values.append(cur.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
-                    field['field_name'],
-                    '',
-                    field['formatted_address'],
-                    field['postal_code'],
-                    field['street'],
-                    field['city'],
-                    field['state'],
+                    field['field_name'], '', field['formatted_address'], field['postal_code'],
+                    field['street'], field['city'], field['state'],
                     f"{field['original_gps_location']['latitude']},{field['original_gps_location']['longitude']}",
-                    field['gplace_id'],
-                    field['search_sport_type'],
-                    field['gearth_link'],
-                    '',
-                    ''
+                    field['gplace_id'], field['search_sport_type'], field['gearth_link'], '', ''
                 )).decode('utf-8'))
             else:
                 for modified_field in field['modified_fields']:
                     class_id = modified_field['class_id']
                     field_type_name = display_names.get(class_id, f'Unknown Field Type {class_id}')
-                    
                     new_gps_str = f"{modified_field['latitude']},{modified_field['longitude']}"
-                    
-                    new_field_name = f"{field['field_name']} - type:{field_type_name}"
-                    
                     all_values.append(cur.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", (
-                        field['field_name'],
-                        field_type_name,
-                        field['formatted_address'],
-                        field['postal_code'],
-                        field['street'],
-                        field['city'],
-                        field['state'],
+                        field['field_name'], field_type_name, field['formatted_address'], field['postal_code'],
+                        field['street'], field['city'], field['state'],
                         f"{field['original_gps_location']['latitude']},{field['original_gps_location']['longitude']}",
-                        field['gplace_id'],
-                        class_id,
-                        field['gearth_link'],
-                        f"https://earth.google.com/web/@{new_gps_str},4.1972381a,15000d",
-                        new_gps_str
+                        field['gplace_id'], class_id, field['gearth_link'],
+                        f"https://earth.google.com/web/@{new_gps_str},4.1972381a,15000d", new_gps_str
                     )).decode('utf-8'))
-                    
-        
         if all_values:
             query = """
             INSERT INTO public.new_google_earth (
-                field_name, object_sport,formatted_address, postal_code, street, city, state, gps_location, gplace_id, search_sport_type, gearth_link,object_gearth_link,object_gps_location
+                field_name, object_sport, formatted_address, postal_code, street, city, state, gps_location, gplace_id, search_sport_type, gearth_link, object_gearth_link, object_gps_location
             ) VALUES %s
             """
-            final_query = query % ",".join(all_values)
-            print(f"Executing bulk insert for {len(all_values)} fields")
-            cur.execute(final_query)
+            cur.execute(query % ",".join(all_values))
             conn.commit()
-        else:
-            print("No fields to save.")
-                
+            print(f"Successfully bulk inserted {len(all_values)} new_google_earth rows.")
     except Exception as error:
-        print("Error during database operation")
-        print(error)
-    
+        print("Error during database save_field_data execution:", error)
     finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
 
 def fetch_cities(state_code):
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return []
-
-    conn = None
-    cur = None
-    cities = []
-
+    if 'database' not in config: return []
+    conn, cur, cities = None, None, []
     try:
         conn = pool.getconn()
         cur = conn.cursor()
-
         query = """
         SELECT DISTINCT city FROM public.postal_code pc
         JOIN state_province sp ON sp.state_id = pc.state_id
@@ -342,333 +293,136 @@ def fetch_cities(state_code):
         """
         cur.execute(query, (state_code,))
         cities = [row[0] for row in cur.fetchall()]
-        print(f"Cities found: {cities}")
     except Exception as error:
-        print("Error fetching cities from database")
-        print(error)
-
+        print("Error fetching cities:", error)
     finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
-
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
     return cities
 
 def fetch_zip_codes(city, state_code):
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return []
-
-    conn = None
-    cur = None
-    zip_codes = []
-
+    if 'database' not in config: return []
+    conn, cur, zip_codes = None, None, []
     try:
         conn = pool.getconn()
         cur = conn.cursor()
-
         query = """
-        SELECT postal_code FROM public.postal_code pc
+        SELECT pc.postal_code FROM public.postal_code pc
         JOIN state_province sp ON sp.state_id = pc.state_id
         WHERE UPPER(pc.city) = %s AND sp.state_code = %s
-        AND postal_code NOT IN (
-            SELECT postal_code FROM maps_api_log WHERE city = %s AND state = %s
-        )
+          AND NOT EXISTS (
+              SELECT 1 FROM maps_api_log mal
+              WHERE mal.city = %s AND mal.state = %s AND mal.zip_code = pc.postal_code
+          )
         """
         cur.execute(query, (city.upper().strip(), state_code, city.upper().strip(), state_code))
         zip_codes = [row[0] for row in cur.fetchall()]
-        print(f"Zip codes found: {zip_codes}")
-
     except Exception as error:
-        print("Error fetching zip codes from database")
-        print(error)
-
+        print("Error fetching zip codes:", error)
     finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
-
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
     return zip_codes
 
-def fetch_schools(zip_code):
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return []
-
-    conn = None
-    cur = None
-
-    try:
-        conn = pool.getconn()
-        cur = conn.cursor()
-
-        query = """
-        SELECT * FROM public.schools
-        WHERE zip_code = %s;
-        """
-        cur.execute(query, (zip_code,))
-        schools_results = cur.fetchall()
-
-    except Exception as error:
-        print("Error fetching schools from database")
-        print(error)
-
-    finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
-    
-    if schools_results is None:
-        print(f"No schools with {zip_code}")
-
-    return schools_results
-
 def log_processed(state, city, zip_code):
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return
-    
-    conn = None
-    cur = None
-
+    if 'database' not in config: return
+    conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
-        
-        query = """
-        INSERT INTO maps_api_log (state, city, zip_code)
-        VALUES (%s, %s, %s)
-        """
+        query = "INSERT INTO maps_api_log (state, city, zip_code) VALUES (%s, %s, %s)"
         cur.execute(query, (state, city, zip_code))
-        
         conn.commit()
-                
     except Exception as error:
-        print("Error during logging operation")
-        print(error)
-    
+        print("Error updating execution logs:", error)
     finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
-
-def haversine(lon1, lat1, lon2, lat2):
-    """
-    Calculate the distance between two points on Earth using the Haversine formula.
-
-    Args:
-        lon1 (float): Longitude of the first point in degrees.
-        lat1 (float): Latitude of the first point in degrees.
-        lon2 (float): Longitude of the second point in degrees.
-        lat2 (float): Latitude of the second point in degrees.
-
-    Returns:
-        float: The distance between the two points in kilometers.
-    """
-    # Convert degrees to radians
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-
-    # Haversine formula
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
-    # Earth radius in kilometers (mean radius)
-    R = 6371
-
-    distance = R * c
-    return distance
-
-'''def delete_duplicates():
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return
-
-    conn = None
-    cur = None
-
-    try:
-        conn = pool.getconn()
-        cur = conn.cursor()
-        
-        print("Deleting duplicates based on gplace_id and search_sport_type")
-        delete_query_1 = """
-        DELETE FROM public.new_google_earth
-        WHERE ctid IN (
-            SELECT ctid
-            FROM (
-                SELECT ctid,
-                       ROW_NUMBER() OVER(PARTITION BY gplace_id, search_sport_type ORDER BY ctid) AS rn
-                FROM public.new_google_earth
-            ) t WHERE t.rn > 1
-        );
-        """
-        cur.execute(delete_query_1)
-        
-        # print("Deleting duplicates based on field_name (partial match)")
-        # delete_query_2 = """
-        # DELETE FROM public.new_google_earth
-        # WHERE field_search_id IN (
-        #     SELECT c.field_search_id
-        #     FROM public.new_google_earth p
-        #     JOIN public.new_google_earth c
-        #     ON trim(split_part(p.field_name, '-', 1)) = trim(split_part(c.field_name, '-', 1))
-        #     AND p.field_name != c.field_name
-        #     AND p.search_sport_type = c.search_sport_type
-        #     AND position('-' in c.field_name) <= 0
-        # );
-        # """
-        # cur.execute(delete_query_2)
-        
-        conn.commit()
-                
-    except Exception as error:
-        print("Error during database operation")
-        print(error)
-    
-    finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)'''
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
 
 def delete_duplicates():
-    if 'database' not in config:
-        print(f"Section 'database' not found in {file}")
-        return
-
-    conn = None
-    cur = None
-
+    if 'database' not in config: return
+    conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
-
-        print("Deleting duplicates by (gplace_id, field_name, gps_location, object_sport)")
         delete_query = """
-            DELETE FROM public.new_google_earth
-            WHERE ctid IN (
-                SELECT ctid
-                FROM (
-                    SELECT ctid,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY
-                                   COALESCE(gplace_id, ''),
-                                   COALESCE(field_name, ''),
-                                   COALESCE(gps_location, ''),
-                                   COALESCE(object_sport, '')
-                               ORDER BY ctid
-                           ) AS rn
-                    FROM public.new_google_earth
-                ) t
-                WHERE t.rn > 1
-            );
+        WITH ranked AS (
+            SELECT field_search_id, ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(gplace_id, ''), COALESCE(field_name, ''), COALESCE(gps_location, '')
+                ORDER BY field_search_id
+            ) AS rn FROM public.new_google_earth
+        ),
+        duplicate_ids AS (SELECT field_search_id FROM ranked WHERE rn > 1),
+        deleted_objects AS (
+            DELETE FROM public.nge_object WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids)
+            RETURNING field_search_id
+        )
+        DELETE FROM public.new_google_earth WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids);
         """
         cur.execute(delete_query)
         conn.commit()
-
+        print(f"Cleaned up duplicate rows successfully.")
     except Exception as error:
-        print("Error during database operation")
-        print(error)
+        print("Error during database duplicate cleaning:", error)
     finally:
-        if cur is not None:
-            cur.close()
-        if conn is not None:
-            pool.putconn(conn)
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
 
 
 if __name__ == "__main__":
-    country = "United States"
-    state_code = input("Enter state code: ")
-    city_to_add = input("Enter city to add: ")
-    single_zip = input("Enter zip to check: ")
-    city_to_add = city_to_add.upper()
-    sport_types = {
-        "baseball": 8,
-        "basketball": 9,
-        "soccer": 79,
-        "tennis": 87,
-        "volleyball": 90
-    }
+    state_code = input("Enter state code (e.g. WA): ").strip().upper()
+    city_to_add = input("Enter city to add (e.g. SEATTLE): ").strip().upper()
+    single_zip = input("Enter zip to check (e.g. 98115): ").strip()
     
     cities_list = fetch_cities(state_code)
-    print(f"Cities in {state_code}, {country}: {cities_list}")
-
+    
     for city in cities_list:
-        if city != city_to_add:
+        if city.upper() != city_to_add:
             continue
         zip_codes_list = fetch_zip_codes(city, state_code)
-        print(f"Zip codes in {city}: {zip_codes_list}")
 
         for zip_code in zip_codes_list:
             if zip_code != single_zip:
                 continue
+                
+            # Step 1: Query location bounding parameters using Photon API geocoding
+            bbox = fetch_zip_bbox_via_photon(zip_code, state_code)
+            if not bbox:
+                print(f"Could not compute bounding boundaries for ZIP code: {zip_code}. Skipping.")
+                continue
+                
             all_fields = []
-            schools_data = fetch_schools(zip_code=zip_code)
-            schools_locations = []
-            for school in schools_data:
-                gps = school[3]
-                if not gps or ',' not in gps:
-                    continue  # skip bad / missing GPS
-                lat, lon = gps.split(",")
-                try:
-                    lat_f, lon_f = float(lat), float(lon)
-                except ValueError:
-                    continue
-
-                school_dict = {
-                    'field_name': school[0],
-                    'formatted_address': None,
-                    'postal_code': None,
-                    'street': None,
-                    'city': school[5],
-                    'state': school[1],
-                    'original_gps_location': {'latitude': lat_f, 'longitude': lon_f},
-                    'gplace_id': None,
-                    'search_sport_type': 100,
-                    'gearth_link': school[11],
-                    'modified_fields': []
-                }
-                schools_locations.append(school_dict)
-                
-            for sport, sport_type_id in sport_types.items():
-                print(f"Fetching fields for {sport} in {city}, {state_code} for zip code {zip_code}")
-                
-                query = f"sports fields and facilities for {sport} in {zip_code}, {state_code}"
-                xml_data = get_fields(query)
-                fields_from_search = parse_fields(xml_data, sport_type_id)
+            
+            # Step 2: Loop through each sport category and fetch records via Overpass
+            for sport_id, sport_name in SPORT_TAGS.items():
+                print(f"Fetching fields for sport tag: '{sport_name}' inside zip code {zip_code}")
+                osm_json_response = get_fields_from_overpass(bbox, sport_name)
+                fields_from_search = parse_osm_elements(osm_json_response, sport_id, city, state_code, zip_code)
                 
                 for field in fields_from_search:
-                    print(f"Processing field: {field['field_name']} at {field['original_gps_location']}")
-                    
-                all_fields.extend(fields_from_search)
+                    all_fields.append(field)
+
             if all_fields:
                 save_field_data(all_fields)
                 log_processed(state_code, city, zip_code)
+                
     delete_duplicates()
+    
+    # Run spatial recentering via the local neural networks
     df = get_field_data()
     print(df)
     nge_object = []
     all_target_class_ids = [4, 5, 9, 10, 14, 16]
     for index, row in df.iterrows():
         print(f"Processing field: {row['field_name']} at {row['gps_location']}")
-        lat,lon = row['gps_location'].split(",")
-        gps_loc ={'latitude': float(lat), 'longitude': float(lon)}
-        img_array = get_satellite_image_array(gps_loc)  # For recentering
+        lat, lon = row['gps_location'].split(",")
+        gps_loc = {'latitude': float(lat), 'longitude': float(lon)}
+        img_array = get_satellite_image_array(gps_loc)
         if img_array is not None:
             modified_locations = object_detection_based_modification_by_class(
-                row['field_id'],img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18)
-            '''maskedImage = field_mask(img_array,"C:\model\soccer_model\model_122622.pth")
-            img_path = "./soccer-images/" + row['field_id'] + '.png'
-            cv2.imwrite(img_path,maskedImage)
-            print(f"Image saved to {img_path}")'''
-        
-        nge_object.extend(modified_locations)
+                row['field_id'], img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
+            )
+            nge_object.extend(modified_locations)
+            
     save_object_data(nge_object)
-    print("Data input process completed")
+    print("Data input process completed utilizing OpenStreetMap data engines successfully.")

@@ -1,0 +1,27 @@
+nge_object_id,field_name,formatted_address,city,state,resolved_primary,sports_supported,method,confidence,google_place_name,web_source
+789,Interbay Athletic Complex,"3027 17th Ave W, Seattle, WA 98104, United States",Seattle,WA,Baseball,"Baseball, Soccer",places_details,0.7,Interbay Athletic Complex,Interbay Athletic Complex
+792,Seattle Mariners,"1250 1st Ave S, Seattle, WA 98134, United States",Seattle,WA,Baseball,Baseball,places_details,0.7,Seattle Mariners,Seattle Mariners
+811,T-Mobile Park,"1250 1st Ave S, Seattle, WA 98134, United States",Seattle,WA,Stadium,,unresolved,0.0,T-Mobile Park,
+820,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+835,Interbay Athletic Complex,"3027 17th Ave W, Seattle, WA 98104, United States",Seattle,WA,Baseball,"Baseball, Soccer",places_details,0.7,Interbay Athletic Complex,Interbay Athletic Complex
+839,Championship Field,"Su Campus Walk, Seattle, WA 98122, United States",Seattle,WA,Soccer,Soccer,places_details,0.7,Championship Field,Championship Field
+840,Soccer Fields,"Seattle, WA 98119, United States",Seattle,WA,Soccer,"Baseball, Soccer",places_details,0.7,Soccer Fields,Soccer Fields
+843,Washington State Public Stadium Authority,"Lumen Field, 800 Occidental Ave S #700, Seattle, WA 98134, United States",Seattle,WA,Stadium,,unresolved,0.0,Washington State Public Stadium Authority,
+844,Lower Woodland - Soccer Field #2,"5201 Green Lake Way N, Seattle, WA 98103, United States",Seattle,WA,Soccer,Soccer,places_details,0.7,Lower Woodland - Soccer Field #2,Lower Woodland - Soccer Field #2
+849,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+890,Volunteer Park Tennis Courts,"1159-1197 Volunteer Park Rd, Seattle, WA 98102, United States",Seattle,WA,Tennis,Tennis,places_details,0.7,Volunteer Park Tennis Courts,Volunteer Park Tennis Courts
+894,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+898,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+905,Interbay Athletic Complex,"3027 17th Ave W, Seattle, WA 98104, United States",Seattle,WA,Baseball,"Baseball, Soccer",places_details,0.7,Interbay Athletic Complex,Interbay Athletic Complex
+908,Seattle Mariners,"1250 1st Ave S, Seattle, WA 98134, United States",Seattle,WA,Baseball,Baseball,places_details,0.7,Seattle Mariners,Seattle Mariners
+927,T-Mobile Park,"1250 1st Ave S, Seattle, WA 98134, United States",Seattle,WA,Stadium,,unresolved,0.0,T-Mobile Park,
+936,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+951,Interbay Athletic Complex,"3027 17th Ave W, Seattle, WA 98104, United States",Seattle,WA,Baseball,"Baseball, Soccer",places_details,0.7,Interbay Athletic Complex,Interbay Athletic Complex
+955,Championship Field,"Su Campus Walk, Seattle, WA 98122, United States",Seattle,WA,Soccer,Soccer,places_details,0.7,Championship Field,Championship Field
+956,Soccer Fields,"Seattle, WA 98119, United States",Seattle,WA,Soccer,"Baseball, Soccer",places_details,0.7,Soccer Fields,Soccer Fields
+959,Washington State Public Stadium Authority,"Lumen Field, 800 Occidental Ave S #700, Seattle, WA 98134, United States",Seattle,WA,Stadium,,unresolved,0.0,Washington State Public Stadium Authority,
+960,Lower Woodland - Soccer Field #2,"5201 Green Lake Way N, Seattle, WA 98103, United States",Seattle,WA,Soccer,Soccer,places_details,0.7,Lower Woodland - Soccer Field #2,Lower Woodland - Soccer Field #2
+965,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+1006,Volunteer Park Tennis Courts,"1159-1197 Volunteer Park Rd, Seattle, WA 98102, United States",Seattle,WA,Tennis,Tennis,places_details,0.7,Volunteer Park Tennis Courts,Volunteer Park Tennis Courts
+1010,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center
+1014,Redhawk Center,"550 14th Ave, Seattle, WA 98112, United States",Seattle,WA,Basketball,"Basketball, Swimming, Volleyball",places_details,0.7,Redhawk Center,Redhawk Center

@@ -1,7 +1,7 @@
 from configparser import ConfigParser
 from psycopg2.pool import SimpleConnectionPool
 
-file = r'c:\Users\owner\Documents\Gameplay_FieldAutomation_full_v3\Gameplay_FieldAutomation_full_v3\config.ini'
+file = r'D:\Gameplay_FieldAutomation_full_v3\config.ini'
 config = ConfigParser()
 config.read(file)
 

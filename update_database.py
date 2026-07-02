@@ -258,5 +258,5 @@ update_latest_existing_data_with_df(
         table_name=table_name_2,
         id_column=id_column_2,
         columns_to_update=columns_to_update_2
-)
+    )
     

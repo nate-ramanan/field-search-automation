@@ -1,2 +1,9 @@
 Detection_Modal_With_Buildings/variables/
 Type_Model/variables/
+images_large/
+images_small/
+obj_detect_img/
+Type_Model/
+Detection_Modal_With_Buildings/
+*.xlsx
+*.png

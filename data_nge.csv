@@ -1,0 +1,239 @@
+nge_object_id,field_id,sport_name,confidence,predicted_field_type,predicted_sport_type,detected_sport,actual_sport,actual_field_type,Zoom Level
+789,9732,Stadium,"0.80, 0.67, 0.61",Turf,Soccer,"Stadium, Baseball",Soccer,turf,-1
+790,9737,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+791,9738,Baseball,"0.94, 0.50",Buildings,Buildings,"Stadium, Baseball",Baseball,turf,0
+792,9738,Stadium,"0.94, 0.54",Grass,Soccer,"Stadium, Baseball",Baseball,turf,-1
+793,9739,Soccer,0.91,Turf,Soccer,Soccer,"Football, Soccer",turf,-1
+794,9740,Tennis,"0.88, 0.88, 0.87, 0.88, 0.88, 0.86, 0.85, 0.81, 0.81, 0.79, 0.65, 0.54, 0.51",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+795,9740,Tennis,"0.89, 0.88, 0.86, 0.87, 0.87, 0.85, 0.84, 0.84, 0.76, 0.68, 0.68, 0.67, 0.60",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+796,9740,Tennis,"0.90, 0.87, 0.84, 0.87, 0.86, 0.83, 0.82, 0.78, 0.69",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+797,9740,Tennis,"0.90, 0.89, 0.87, 0.88, 0.88, 0.86, 0.86, 0.84, 0.82, 0.80, 0.62, 0.56",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+798,9740,Tennis,"0.89, 0.89, 0.87, 0.88, 0.88, 0.86, 0.85, 0.72, 0.68, 0.52, 0.46",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+799,9740,Tennis,"0.89, 0.88, 0.86, 0.87, 0.87, 0.85, 0.85, 0.82, 0.67, 0.65, 0.64, 0.55, 0.45",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+800,9740,Soccer,"0.92, 0.90, 0.87, 0.89, 0.87, 0.87, 0.86, 0.85, 0.85, 0.80, 0.79, 0.72",Grass,Soccer,"Soccer, Tennis, Baseball",Soccer,turf,-1
+801,9740,Tennis,"0.88, 0.88, 0.86, 0.87, 0.87, 0.85, 0.76, 0.73, 0.72, 0.64",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+802,9740,Tennis,"0.90, 0.89, 0.86, 0.88, 0.88, 0.85, 0.84, 0.84, 0.70, 0.58, 0.58, 0.54, 0.47",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+803,9741,Tennis,"0.90, 0.70, 0.54, 0.47",Buildings,Buildings,"Soccer, Tennis, Baseball","Baseball, Tennis","grass, cement",1
+804,9741,Baseball,"0.91, 0.90, 0.72, 0.60",Turf,Baseball,"Soccer, Tennis, Baseball",Baseball,grass,0
+805,9744,Tennis,"0.89, 0.81, 0.81",Synthetic,Basketball,"Tennis, Baseball","Soccer, tennis","grass, cement",1
+806,9744,Tennis,"0.82, 0.82, 0.80",Synthetic,Basketball,"Tennis, Baseball","Soccer, tennis","grass, cement",1
+807,9745,Baseball,0.88,Turf,Soccer,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+808,9747,Soccer,"0.86, 0.84",Turf,Soccer,"Tennis, Soccer","Football, Soccer",turf,0
+809,9747,Tennis,"0.89, 0.86, 0.56",Grass,Soccer,"Tennis, Baseball, Soccer","Soccer, tennis","turf, synthetic",1
+810,9748,Baseball,"0.93, 0.64",Grass,Soccer,"Stadium, Baseball",Baseball,turf,0
+811,9748,Stadium,"0.94, 0.53",Turf,Baseball,"Stadium, Baseball",Baseball,turf,-1
+812,9750,Baseball,"0.96, 0.89, 0.86, 0.89, 0.89, 0.80",Grass,Baseball,"Tennis, Baseball",Baseball,grass,0
+813,9750,Tennis,"0.92, 0.90, 0.87, 0.89, 0.88, 0.86, 0.54",Synthetic,Tennis,"Basketball, Tennis, Baseball","Tennis, Baseball","grass, synthetic",1
+814,9750,Tennis,"0.90, 0.89, 0.87, 0.89, 0.87, 0.84, 0.68",Synthetic,Tennis,"Basketball, Tennis, Baseball","Baseball, Tennis, Basketball","grass, synthetic, cement",1
+815,9750,Tennis,"0.90, 0.90, 0.87, 0.89, 0.88, 0.84, 0.58",Synthetic,Tennis,"Basketball, Tennis, Baseball","Baseball, Tennis, Basketball","grass, synthetic, cement",1
+816,9750,Basketball,"0.92, 0.90, 0.87, 0.88, 0.88, 0.74, 0.72",Synthetic,Basketball,"Basketball, Tennis, Baseball","Basketball, Baseball","cement, grass",1
+817,9758,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+818,9758,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+819,9758,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+820,9758,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,grass,-1
+821,9759,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+822,9760,Baseball,0.85,Buildings,Buildings,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+823,9760,Basketball,0.91,Buildings,Buildings,Baseball,Basketball,concrete,1
+824,9764,Soccer,"0.86, 0.84",Turf,Soccer,"Tennis, Soccer","Football, Soccer",turf,0
+825,9764,Tennis,"0.89, 0.86, 0.56",Grass,Soccer,"Tennis, Baseball, Soccer","Tennis, soccer","synthetic, turf",-1
+826,9765,Tennis,"0.91, 0.89, 0.89, 0.82",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+827,9765,Tennis,"0.91, 0.90, 0.55, 0.89, 0.77",Synthetic,Tennis,"Tennis, Soccer",Tennis,synthetic,0
+828,9765,Baseball,"0.88, 0.71",Turf,Soccer,Tennis,"Basketball, Baseball, Soccer","turf, concrete",1
+829,9765,Tennis,"0.90, 0.89, 0.89, 0.84",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+830,9765,Baseball,0.47,Turf,Soccer,Golf,"soccer, baseball, basketball","grass, concrete",1
+831,9765,Tennis,"0.90, 0.90, 0.89, 0.79",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+832,9766,Baseball,0.88,Turf,Soccer,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+833,9768,Baseball,"0.95, 0.89, 0.57, 0.83, 0.67",Synthetic,Basketball,"Tennis, Baseball",Baseball,grass,-1
+834,9770,Tennis,"0.87, 0.81",Synthetic,Tennis,Tennis,Tennis,synthetic,1
+835,9771,Stadium,"0.80, 0.67, 0.61",Turf,Soccer,"Stadium, Baseball",Soccer,turf,-1
+836,9774,Tennis,"0.88, 0.88, 0.87, 0.59",Synthetic,Tennis,"Tennis, Stadium","Tennis, Soccer","turf, synthetic",1
+837,9774,Tennis,"0.90, 0.86, 0.86, 0.59",Synthetic,Tennis,"Tennis, Stadium","Tennis, Soccer","turf, synthetic",1
+838,9774,Tennis,"0.89, 0.87, 0.86, 0.53",Synthetic,Tennis,"Tennis, Stadium","Tennis, Soccer","turf, synthetic",1
+839,9774,Stadium,"0.89, 0.86, 0.84, 0.66",Grass,Soccer,"Tennis, Stadium",Soccer,turf,-1
+840,9775,Stadium,"0.90, 0.72, 0.52",Buildings,Buildings,"Stadium, Baseball",N/A,N/A,1
+841,9780,Soccer,0.93,Turf,Soccer,Soccer,Soccer,turf,0
+842,9782,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+843,9783,Stadium,0.7,Buildings,Buildings,Stadium,N/A,N/A,-1
+844,9784,Stadium,"0.91, 0.56",Turf,Soccer,"Stadium, Baseball",Soccer,turf,0
+845,9789,Soccer,0.91,Turf,Soccer,Soccer,"Soccer, Football",turf,0
+846,9790,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+847,9790,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+848,9790,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+849,9790,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,turf,-1
+850,9791,Tennis,"0.89, 0.89, 0.81, 0.88, 0.82, 0.80",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+851,9791,Tennis,"0.90, 0.89, 0.84, 0.89, 0.84, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+852,9791,Tennis,"0.89, 0.89, 0.83, 0.88, 0.85, 0.81",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+853,9791,Tennis,"0.91, 0.89, 0.83, 0.88, 0.87, 0.75",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+854,9792,Tennis,"0.90, 0.89, 0.87, 0.88, 0.88, 0.86, 0.85, 0.60",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+855,9792,Tennis,"0.89, 0.89, 0.88, 0.89, 0.88, 0.85, 0.83, 0.54, 0.53",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+856,9792,Tennis,"0.91, 0.90, 0.86, 0.90, 0.88, 0.86, 0.85, 0.53",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+857,9792,Tennis,"0.90, 0.89, 0.87, 0.88, 0.87, 0.87, 0.85, 0.51",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+858,9793,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+859,9794,Tennis,"0.90, 0.89, 0.88, 0.53",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+860,9794,Tennis,"0.89, 0.88, 0.87, 0.56",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+861,9794,Tennis,"0.89, 0.88, 0.88, 0.55",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+862,9796,Tennis,"0.88, 0.83",Synthetic,Tennis,Tennis,"Tennis, basketball","synthetic, concrete",1
+863,9796,Tennis,"0.86, 0.85",Synthetic,Tennis,Tennis,"Tennis, Basketball","synthetic, concrete",1
+864,9797,Baseball,0.89,Turf,Soccer,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+865,9798,Tennis,"0.92, 0.88, 0.87, 0.88, 0.88, 0.86, 0.86, 0.86, 0.83, 0.80, 0.76",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+866,9798,Tennis,"0.93, 0.90, 0.88, 0.89, 0.88, 0.88, 0.87, 0.85, 0.83, 0.82, 0.62",Synthetic,Tennis,Tennis,Tennis,"synthetic, concrete",0
+867,9798,Tennis,"0.91, 0.90, 0.87, 0.90, 0.89, 0.86, 0.85, 0.84, 0.84, 0.82, 0.70, 0.47",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+868,9798,Tennis,"0.93, 0.91, 0.87, 0.88, 0.87, 0.85, 0.85, 0.84, 0.82, 0.81, 0.75",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+869,9798,Tennis,"0.91, 0.90, 0.86, 0.90, 0.90, 0.85, 0.85, 0.85, 0.82, 0.82, 0.76",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+870,9798,Tennis,"0.92, 0.90, 0.89, 0.90, 0.89, 0.88, 0.87, 0.84, 0.82, 0.76, 0.53",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+871,9798,Tennis,"0.91, 0.90, 0.87, 0.90, 0.87, 0.86, 0.86, 0.86, 0.85, 0.83, 0.66",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+872,9798,Tennis,"0.89, 0.88, 0.87, 0.88, 0.87, 0.86, 0.85, 0.85, 0.84, 0.80, 0.57",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+873,9798,Tennis,"0.89, 0.89, 0.88, 0.89, 0.88, 0.85, 0.85, 0.84, 0.84, 0.84, 0.68",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+874,9799,Tennis,"0.90, 0.70, 0.54, 0.47",Buildings,Buildings,"Soccer, Tennis, Baseball","Baseball, Tennis","grass, concrete",1
+875,9799,Baseball,"0.91, 0.90, 0.72, 0.60",Turf,Baseball,"Soccer, Tennis, Baseball",Baseball,grass,0
+876,9800,Tennis,"0.89, 0.89, 0.87, 0.88, 0.87, 0.86, 0.86, 0.83, 0.70, 0.67, 0.64, 0.61, 0.49",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+877,9800,Tennis,"0.89, 0.89, 0.87, 0.87, 0.87, 0.84, 0.67, 0.66, 0.64, 0.64, 0.61",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+878,9800,Tennis,"0.89, 0.89, 0.87, 0.88, 0.87, 0.86, 0.85, 0.85, 0.75, 0.74, 0.66, 0.63",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+879,9800,Tennis,"0.89, 0.88, 0.85, 0.88, 0.86, 0.85, 0.77, 0.73, 0.72, 0.45",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+880,9800,Tennis,"0.88, 0.87, 0.85, 0.87, 0.85, 0.83, 0.81, 0.68, 0.64",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+881,9800,Tennis,"0.90, 0.89, 0.87, 0.88, 0.88, 0.87, 0.71, 0.70, 0.69, 0.65, 0.47",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+882,9800,Tennis,"0.89, 0.88, 0.86, 0.87, 0.86, 0.84, 0.78, 0.77, 0.74, 0.59",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+883,9802,Tennis,"0.87, 0.86, 0.85, 0.86, 0.85, 0.84",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+884,9802,Tennis,"0.89, 0.88, 0.87, 0.87, 0.87, 0.85, 0.79",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+885,9802,Tennis,"0.87, 0.86, 0.84, 0.86, 0.85, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+886,9802,Tennis,"0.89, 0.89, 0.86, 0.89, 0.87, 0.84, 0.76",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+887,9802,Tennis,"0.89, 0.88, 0.84, 0.85, 0.84, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+888,9802,Tennis,"0.92, 0.89, 0.86, 0.88, 0.88, 0.86, 0.84",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+889,9803,Tennis,"0.79, 0.66, 0.47",Synthetic,Tennis,Tennis,Tennis,concrete,0
+890,9803,Stadium,"0.78, 0.74, 0.65",Synthetic,Basketball,Tennis,N/A,N/A,1
+891,9809,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+892,9809,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+893,9809,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+894,9809,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,turf,-1
+895,9812,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+896,9812,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+897,9812,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+898,9812,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,turf,-1
+899,9817,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+900,9823,Tennis,"0.90, 0.70, 0.54, 0.47",Buildings,Buildings,"Soccer, Tennis, Baseball","Baseball, tennis","grass, cement",1
+901,9823,Baseball,"0.91, 0.90, 0.72, 0.60",Turf,Baseball,"Soccer, Tennis, Baseball",Baseball,grass,0
+902,9825,Baseball,0.85,Buildings,Buildings,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+903,9825,Basketball,0.91,Buildings,Buildings,Baseball,Basketball,concrete,1
+904,9826,Baseball,"0.95, 0.89, 0.57, 0.83, 0.67",Synthetic,Basketball,"Tennis, Baseball",Baseball,grass,0
+905,9732,Stadium,"0.80, 0.67, 0.61",Turf,Soccer,"Stadium, Baseball",Soccer,turf,-1
+906,9737,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+907,9738,Baseball,"0.94, 0.50",Buildings,Buildings,"Stadium, Baseball",Baseball,turf,0
+908,9738,Stadium,"0.94, 0.54",Grass,Soccer,"Stadium, Baseball",Baseball,turf,-1
+909,9739,Soccer,0.91,Turf,Soccer,Soccer,"Soccer, Football",turf,1
+910,9740,Tennis,"0.88, 0.88, 0.87, 0.88, 0.88, 0.86, 0.85, 0.81, 0.81, 0.79, 0.65, 0.54, 0.51",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+911,9740,Tennis,"0.89, 0.88, 0.86, 0.87, 0.87, 0.85, 0.84, 0.84, 0.76, 0.68, 0.68, 0.67, 0.60",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+912,9740,Tennis,"0.90, 0.87, 0.84, 0.87, 0.86, 0.83, 0.82, 0.78, 0.69",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+913,9740,Tennis,"0.90, 0.89, 0.87, 0.88, 0.88, 0.86, 0.86, 0.84, 0.82, 0.80, 0.62, 0.56",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+914,9740,Tennis,"0.89, 0.89, 0.87, 0.88, 0.88, 0.86, 0.85, 0.72, 0.68, 0.52, 0.46",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+915,9740,Tennis,"0.89, 0.88, 0.86, 0.87, 0.87, 0.85, 0.85, 0.82, 0.67, 0.65, 0.64, 0.55, 0.45",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+916,9740,Soccer,"0.92, 0.90, 0.87, 0.89, 0.87, 0.87, 0.86, 0.85, 0.85, 0.80, 0.79, 0.72",Grass,Soccer,"Soccer, Tennis, Baseball",Soccer,turf,-1
+917,9740,Tennis,"0.88, 0.88, 0.86, 0.87, 0.87, 0.85, 0.76, 0.73, 0.72, 0.64",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+918,9740,Tennis,"0.90, 0.89, 0.86, 0.88, 0.88, 0.85, 0.84, 0.84, 0.70, 0.58, 0.58, 0.54, 0.47",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+919,9741,Tennis,"0.90, 0.70, 0.54, 0.47",Buildings,Buildings,"Soccer, Tennis, Baseball","Baseball, Tennis","grass, cement",1
+920,9741,Baseball,"0.91, 0.90, 0.72, 0.60",Turf,Baseball,"Soccer, Tennis, Baseball",Baseball,grass,0
+921,9744,Tennis,"0.89, 0.81, 0.81",Synthetic,Basketball,"Tennis, Baseball","Soccer, tennis","grass, cement",1
+922,9744,Tennis,"0.82, 0.82, 0.80",Synthetic,Basketball,"Tennis, Baseball","Soccer, tennis","grass, cement",1
+923,9745,Baseball,0.88,Turf,Soccer,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+924,9747,Soccer,"0.86, 0.84",Turf,Soccer,"Tennis, Soccer","Soccer, football",turf,0
+925,9747,Tennis,"0.89, 0.86, 0.56",Grass,Soccer,"Tennis, Baseball, Soccer","Soccer, Tennis","turf, synthetic",1
+926,9748,Baseball,"0.93, 0.64",Grass,Soccer,"Stadium, Baseball",Baseball,turf,0
+927,9748,Stadium,"0.94, 0.53",Turf,Baseball,"Stadium, Baseball",Baseball,turf,0
+928,9750,Baseball,"0.96, 0.89, 0.86, 0.89, 0.89, 0.80",Grass,Baseball,"Tennis, Baseball","Baseball, tennis","grass, synthetic",1
+929,9750,Tennis,"0.92, 0.90, 0.87, 0.89, 0.88, 0.86, 0.54",Synthetic,Tennis,"Basketball, Tennis, Baseball","Baseball, tennis","grass, synthetic",1
+930,9750,Tennis,"0.90, 0.89, 0.87, 0.89, 0.87, 0.84, 0.68",Synthetic,Tennis,"Basketball, Tennis, Baseball","Baseball, tennis","grass, synthetic",1
+931,9750,Tennis,"0.90, 0.90, 0.87, 0.89, 0.88, 0.84, 0.58",Synthetic,Tennis,"Basketball, Tennis, Baseball","Basketball, Baseball","grass, cement",1
+932,9750,Basketball,"0.92, 0.90, 0.87, 0.88, 0.88, 0.74, 0.72",Synthetic,Basketball,"Basketball, Tennis, Baseball",Tennis,synthetic,0
+933,9758,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+934,9758,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+935,9758,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+936,9758,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,turf,-1
+937,9759,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+938,9760,Baseball,0.85,Buildings,Buildings,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+939,9760,Basketball,0.91,Buildings,Buildings,Baseball,Basketball,cement,1
+940,9764,Soccer,"0.86, 0.84",Turf,Soccer,"Tennis, Soccer","Football, Soccer",turf,0
+941,9764,Tennis,"0.89, 0.86, 0.56",Grass,Soccer,"Tennis, Baseball, Soccer","Soccer, tennis","turf, synthetic",1
+942,9765,Tennis,"0.91, 0.89, 0.89, 0.82",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+943,9765,Tennis,"0.91, 0.90, 0.55, 0.89, 0.77",Synthetic,Tennis,"Tennis, Soccer",Tennis,synthetic,0
+944,9765,Baseball,"0.88, 0.71",Turf,Soccer,Tennis,"soccer, baseball, basketball","turf, cement",1
+945,9765,Tennis,"0.90, 0.89, 0.89, 0.84",Synthetic,Tennis,Tennis,tennis,synthetic,0
+946,9765,Baseball,0.47,Turf,Soccer,Golf,"soccer, baseball, basketball","turf, cement",1
+947,9765,Tennis,"0.90, 0.90, 0.89, 0.79",Synthetic,Tennis,Tennis,tennis,synthetic,0
+948,9766,Baseball,0.88,Turf,Soccer,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+949,9768,Baseball,"0.95, 0.89, 0.57, 0.83, 0.67",Synthetic,Basketball,"Tennis, Baseball",Baseball,grass,0
+950,9770,Tennis,"0.87, 0.81",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+951,9771,Stadium,"0.80, 0.67, 0.61",Turf,Soccer,"Stadium, Baseball",Soccer,turf,-1
+952,9774,Tennis,"0.88, 0.88, 0.87, 0.59",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,1
+953,9774,Tennis,"0.90, 0.86, 0.86, 0.59",Synthetic,Tennis,"Tennis, Stadium",tennis,synthetic,1
+954,9774,Tennis,"0.89, 0.87, 0.86, 0.53",Synthetic,Tennis,"Tennis, Stadium",tennis,synthetic,1
+955,9774,Stadium,"0.89, 0.86, 0.84, 0.66",Grass,Soccer,"Tennis, Stadium",soccer,turf,-1
+956,9775,Stadium,"0.90, 0.72, 0.52",Buildings,Buildings,"Stadium, Baseball",N/A,N/A,1
+957,9780,Soccer,0.93,Turf,Soccer,Soccer,Soccer,turf,0
+958,9782,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+959,9783,Stadium,0.7,Buildings,Buildings,Stadium,N/A,N/A,-1
+960,9784,Stadium,"0.91, 0.56",Turf,Soccer,"Stadium, Baseball",Soccer,turf,0
+961,9789,Soccer,0.91,Turf,Soccer,Soccer,"Football, Soccer",turf,0
+962,9790,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+963,9790,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+964,9790,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",tennis,synthetic,0
+965,9790,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,turf,-1
+966,9791,Tennis,"0.89, 0.89, 0.81, 0.88, 0.82, 0.80",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+967,9791,Tennis,"0.90, 0.89, 0.84, 0.89, 0.84, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+968,9791,Tennis,"0.89, 0.89, 0.83, 0.88, 0.85, 0.81",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+969,9791,Tennis,"0.91, 0.89, 0.83, 0.88, 0.87, 0.75",Synthetic,Tennis,Tennis,Tennis,synthetic,1
+970,9792,Tennis,"0.90, 0.89, 0.87, 0.88, 0.88, 0.86, 0.85, 0.60",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+971,9792,Tennis,"0.89, 0.89, 0.88, 0.89, 0.88, 0.85, 0.83, 0.54, 0.53",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+972,9792,Tennis,"0.91, 0.90, 0.86, 0.90, 0.88, 0.86, 0.85, 0.53",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+973,9792,Tennis,"0.90, 0.89, 0.87, 0.88, 0.87, 0.87, 0.85, 0.51",Buildings,Buildings,"Tennis, Stadium",Tennis,synthetic,1
+974,9793,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+975,9794,Tennis,"0.90, 0.89, 0.88, 0.53",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+976,9794,Tennis,"0.89, 0.88, 0.87, 0.56",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+977,9794,Tennis,"0.89, 0.88, 0.88, 0.55",Synthetic,Tennis,"Tennis, Stadium",Tennis,synthetic,0
+978,9796,Tennis,"0.88, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,1
+979,9796,Tennis,"0.86, 0.85",Synthetic,Tennis,Tennis,Tennis,synthetic,1
+980,9797,Baseball,0.89,Turf,Soccer,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+981,9798,Tennis,"0.92, 0.88, 0.87, 0.88, 0.88, 0.86, 0.86, 0.86, 0.83, 0.80, 0.76",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+982,9798,Tennis,"0.93, 0.90, 0.88, 0.89, 0.88, 0.88, 0.87, 0.85, 0.83, 0.82, 0.62",Synthetic,Tennis,Tennis,Tennis,"synthetic, concrete",1
+983,9798,Tennis,"0.91, 0.90, 0.87, 0.90, 0.89, 0.86, 0.85, 0.84, 0.84, 0.82, 0.70, 0.47",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+984,9798,Tennis,"0.93, 0.91, 0.87, 0.88, 0.87, 0.85, 0.85, 0.84, 0.82, 0.81, 0.75",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+985,9798,Tennis,"0.91, 0.90, 0.86, 0.90, 0.90, 0.85, 0.85, 0.85, 0.82, 0.82, 0.76",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+986,9798,Tennis,"0.92, 0.90, 0.89, 0.90, 0.89, 0.88, 0.87, 0.84, 0.82, 0.76, 0.53",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+987,9798,Tennis,"0.91, 0.90, 0.87, 0.90, 0.87, 0.86, 0.86, 0.86, 0.85, 0.83, 0.66",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+988,9798,Tennis,"0.89, 0.88, 0.87, 0.88, 0.87, 0.86, 0.85, 0.85, 0.84, 0.80, 0.57",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+989,9798,Tennis,"0.89, 0.89, 0.88, 0.89, 0.88, 0.85, 0.85, 0.84, 0.84, 0.84, 0.68",Synthetic,Tennis,Tennis,Tennis,Synthetic,0
+990,9799,Tennis,"0.90, 0.70, 0.54, 0.47",Buildings,Buildings,"Soccer, Tennis, Baseball","Baseball, tennis","grass, cement",1
+991,9799,Baseball,"0.91, 0.90, 0.72, 0.60",Turf,Baseball,"Soccer, Tennis, Baseball",Baseball,grass,0
+992,9800,Tennis,"0.89, 0.89, 0.87, 0.88, 0.87, 0.86, 0.86, 0.83, 0.70, 0.67, 0.64, 0.61, 0.49",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+993,9800,Tennis,"0.89, 0.89, 0.87, 0.87, 0.87, 0.84, 0.67, 0.66, 0.64, 0.64, 0.61",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+994,9800,Tennis,"0.89, 0.89, 0.87, 0.88, 0.87, 0.86, 0.85, 0.85, 0.75, 0.74, 0.66, 0.63",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+995,9800,Tennis,"0.89, 0.88, 0.85, 0.88, 0.86, 0.85, 0.77, 0.73, 0.72, 0.45",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+996,9800,Tennis,"0.88, 0.87, 0.85, 0.87, 0.85, 0.83, 0.81, 0.68, 0.64",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+997,9800,Tennis,"0.90, 0.89, 0.87, 0.88, 0.88, 0.87, 0.71, 0.70, 0.69, 0.65, 0.47",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+998,9800,Tennis,"0.89, 0.88, 0.86, 0.87, 0.86, 0.84, 0.78, 0.77, 0.74, 0.59",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+999,9802,Tennis,"0.87, 0.86, 0.85, 0.86, 0.85, 0.84",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+1000,9802,Tennis,"0.89, 0.88, 0.87, 0.87, 0.87, 0.85, 0.79",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+1001,9802,Tennis,"0.87, 0.86, 0.84, 0.86, 0.85, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+1002,9802,Tennis,"0.89, 0.89, 0.86, 0.89, 0.87, 0.84, 0.76",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+1003,9802,Tennis,"0.89, 0.88, 0.84, 0.85, 0.84, 0.83",Synthetic,Tennis,Tennis,Tennis,synthetic,0
+1004,9802,Tennis,"0.92, 0.89, 0.86, 0.88, 0.88, 0.86, 0.84",Synthetic,Tennis,"Tennis, Baseball",Tennis,synthetic,0
+1005,9803,Tennis,"0.79, 0.66, 0.47",Synthetic,Tennis,Tennis,Tennis,cement,0
+1006,9803,Stadium,"0.78, 0.74, 0.65",Synthetic,Basketball,Tennis,N/A,N/A,1
+1007,9809,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,Synthetic,0
+1008,9809,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,Synthetic,0
+1009,9809,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,Synthetic,0
+1010,9809,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,Grass,1
+1011,9812,Tennis,"0.89, 0.86, 0.86, 0.62",Synthetic,Tennis,"Tennis, Stadium",Tennis,Synthetic,0
+1012,9812,Tennis,"0.86, 0.86, 0.86, 0.48",Synthetic,Tennis,"Tennis, Stadium",Tennis,Synthetic,0
+1013,9812,Tennis,"0.88, 0.86, 0.85, 0.58",Synthetic,Tennis,"Tennis, Stadium",Tennis,Synthetic,0
+1014,9812,Stadium,"0.87, 0.86, 0.82, 0.64",Grass,Soccer,"Tennis, Stadium",Soccer,Grass,1
+1015,9817,Baseball,"0.83, 0.57",Buildings,Buildings,"Basketball, Baseball","Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+1016,9823,Tennis,"0.90, 0.70, 0.54, 0.47",Buildings,Buildings,"Soccer, Tennis, Baseball","Baseball, Tennis","grass, cement",1
+1017,9823,Baseball,"0.91, 0.90, 0.72, 0.60",Turf,Baseball,"Soccer, Tennis, Baseball",Baseball,grass,0
+1018,9825,Baseball,0.85,Buildings,Buildings,Baseball,"Baseball, Soccer, Basketball, Tennis","turf, concrete, synthetic",1
+1019,9825,Basketball,0.91,Buildings,Buildings,Baseball,Basketball,cement,1
+1020,9826,Baseball,"0.95, 0.89, 0.57, 0.83, 0.67",Synthetic,Basketball,"Tennis, Baseball",Baseball,grass,0
+,,,,,,,,,
+,,,,,,,,,
+,,,,Problems,,,,,
+,,,,1,There are duplications on Images multiple times and same field image is available for numerous field and nge object id.,,,,
+,,,,2,There are 100 images produced without any nge_object_id but with a field_search_id and 'Unknown Field Type' as Sports name.,,,,
+,,,,3,Some incorrect Sports name were assigned to some of those 100 images with no nge_object_id.,,,,

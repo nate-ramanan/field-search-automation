@@ -28,11 +28,11 @@ def get_field_data(pool):
         while True:
             cur.execute("""
                 SELECT * FROM (
-                SELECT search_sport_type, field_name, obj.image_url as field_map, nge.field_search_id as field_id, sport_name, obj.nge_object_id
+                SELECT nge.search_sport_type as searched_sport_id, nge.field_name, obj.adjusted_gps_location as field_map, nge.field_search_id as field_id, obj.detected_sport as sport_name, obj.nge_object_id
                 FROM public.new_google_earth nge
                 JOIN nge_object obj ON obj.field_search_id = nge.field_search_id
                 UNION
-                SELECT search_sport_type, field_name, gearth_link as field_map, nge.field_search_id as field_id, 'orig' as sport_name, null as nge_object_id
+                SELECT nge.search_sport_type as searched_sport_id, nge.field_name, nge.gearth_link as field_map, nge.field_search_id as field_id, 'orig' as sport_name, null as nge_object_id
                 FROM public.new_google_earth nge
                 ) AS combined
                 LIMIT %s OFFSET %s
@@ -64,5 +64,3 @@ def get_field_data(pool):
 
 
     return total_df
-
-
