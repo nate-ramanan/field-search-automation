@@ -135,31 +135,184 @@ def get_fields_from_google(zip_code, sport_name, api_key):
 # PARSING FUNCTIONS
 #Look at json and see the mapping and verify
 # ---------------------------------------------------------
+def extract_clean_address(tags):
+    """
+    Extracts and builds a clean string address from OSM tags,
+    mirroring the structured fallback logic in the Qlever pipeline.
+    """
+    housenumber = tags.get('addr:housenumber', '').strip()
+    street = tags.get('addr:street', '').strip()
+    city = tags.get('addr:city', '').strip()
+    postcode = tags.get('addr:postcode', '').strip()
+    state = tags.get('addr:state', '').strip()
+    
+    # Check if a combined address tag already exists
+    full_addr = tags.get('addr:full', '')
+    if full_addr:
+        return full_addr.strip()
+        
+    # Construct address dynamically based on available items
+    parts = []
+    if housenumber and street:
+        parts.append(f"{housenumber} {street}")
+    elif street:
+        parts.append(street)
+        
+    if city:
+        parts.append(city)
+    if state:
+        parts.append(state)
+    if postcode:
+        parts.append(postcode)
+        
+    return ", ".join(parts) if parts else None
+
+
+def construct_facility_name(tags, default_sport_name="Field"):
+    """
+    Implements the advanced name fallback architecture from qlever_v_6.
+    Replaces generic 'osm pitch' strings with descriptive parent or feature labels.
+    """
+    # 1. Primary choice: Explicitly tagged object name
+    if tags.get('name'):
+        return tags.get('name').strip()
+        
+    # 2. Secondary choice: Parent container name (if it was pulled or nested)
+    if tags.get('container_name'):
+        container = tags.get('container_name').strip()
+        sport = tags.get('sport', default_sport_name).replace('_', ' ').title()
+        return f"{container} ({sport} Facility)"
+        
+    # 3. Tertiary choice: Build a descriptive asset label using auxiliary tags
+    operator = tags.get('operator', '').strip()
+    surface = tags.get('surface', '').strip().replace('_', ' ').title()
+    sport = tags.get('sport', default_sport_name).replace('_', ' ').title()
+    leisure = tags.get('leisure', '').strip().replace('_', ' ').title()
+    
+    name_parts = []
+    if operator:
+        name_parts.append(operator)
+    elif surface:
+        name_parts.append(f"OSM {surface}")
+    else:
+        name_parts.append("OSM")
+        
+    name_parts.append(sport)
+    
+    if leisure:
+        name_parts.append(leisure)
+    else:
+        name_parts.append("Facility")
+        
+    return " ".join(name_parts)
+# ---------------------------------------------------------
+# PARSING FUNCTIONS (WITH ADVANCED QLEVER NAME & ADDRESS HANDLING)
+# ---------------------------------------------------------
+# ---------------------------------------------------------
+# PARSING & REVERSE GEOCODING ENRICHMENT FUNCTIONS
+# ---------------------------------------------------------
+# ---------------------------------------------------------
+# PARSING & REVERSE GEOCODING ENRICHMENT FUNCTIONS
+# ---------------------------------------------------------
+def enrich_location_via_photon(lat, lon, default_city, default_state, default_zip, sport_label):
+    """
+    Queries Photon reverse geocoding to resolve the real-world 
+    campus facility name (e.g. Park or School) and full street address.
+    """
+    url = "https://photon.komoot.io/reverse"
+    params = {"lat": lat, "lon": lon, "lang": "en"}
+    headers = {"User-Agent": "SportsFacilityFinder/1.0"}
+    
+    # Defaults in case the external lookup falls back
+    name = f"OSM {sport_label} Facility"
+    address = f"{default_city}, {default_state} {default_zip}"
+    street = ""
+    city = default_city
+    state = default_state
+    postcode = default_zip
+    
+    try:
+        res = requests.get(url, params=params, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            features = data.get("features", [])
+            if features:
+                props = features[0].get("properties", {})
+                
+                photon_name = props.get("name", "").strip()
+                photon_street = props.get("street", "").strip()
+                photon_house = props.get("housenumber", "").strip()
+                photon_city = props.get("city", props.get("town", default_city)).strip()
+                photon_state = props.get("state", default_state).strip()
+                photon_postcode = props.get("postcode", default_zip).strip()
+                
+                if photon_name and photon_name != photon_street:
+                    name = f"{photon_name} ({sport_label} Field)"
+                elif photon_street:
+                    name = f"{photon_street} {sport_label} Field"
+                    
+                street = photon_street
+                if photon_house and photon_street:
+                    street_line = f"{photon_house} {photon_street}"
+                else:
+                    street_line = photon_street if photon_street else photon_name
+                    
+                if street_line:
+                    address = f"{street_line}, {photon_city}, {photon_state} {photon_postcode}"
+                else:
+                    address = f"{photon_city}, {photon_state} {photon_postcode}"
+                    
+                city = photon_city
+                state = photon_state
+                postcode = photon_postcode
+    except Exception as e:
+        print(f"Photon reverse enrichment failed for ({lat}, {lon}): {e}")
+        
+    return name, address, street, city, state, postcode
+
+
 def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
+    """
+    Parses OpenStreetMap elements and automatically enriches empty records
+    using live coordinate-based reverse geocoding lookups.
+    """
     fields = []
+    sport_str = SPORT_TAGS.get(search_sport_type, "Facility").title()
+
     for el in osm_data.get("elements", []):
         lat = el.get("center", {}).get("lat", el.get("lat"))
         lon = el.get("center", {}).get("lon", el.get("lon"))
-        if not lat or not lon: continue
+        if not lat or not lon: 
+            continue
             
         tags = el.get("tags", {})
-        el_type = el.get("type", "node")
-        el_id = el.get("id", 0)
+        osm_native_id = f"{el.get('type', 'node')}/{el.get('id', 0)}" 
         
-        # Standard OSM URI Format (Native ID)
-        osm_native_id = f"{el_type}/{el_id}" 
+        has_native_name = tags.get("name") is not None
+        has_native_address = tags.get("addr:street") is not None
         
-        raw_name = tags.get("name", tags.get("description", f"OSM {tags.get('leisure', 'Facility')} Location"))
-        street = tags.get("addr:street", "")
-        house_num = tags.get("addr:housenumber", "")
-        
+        if has_native_name and has_native_address:
+            raw_name = tags.get("name").strip()
+            street_field = tags.get('addr:street', '').strip()
+            housenumber = tags.get('addr:housenumber', '').strip()
+            if housenumber:
+                street_field = f"{housenumber} {street_field}"
+            city_field = tags.get('addr:city', city).strip()
+            state_field = tags.get('addr:state', state).strip()
+            postcode_field = tags.get('addr:postcode', postal_code).strip()
+            formatted_address = tags.get('addr:full', f"{street_field}, {city_field}, {state_field} {postcode_field}").strip()
+        else:
+            raw_name, formatted_address, street_field, city_field, state_field, postcode_field = enrich_location_via_photon(
+                lat, lon, city, state, postal_code, sport_str
+            )
+
         field = {
             'field_name': raw_name,
-            'formatted_address': f"{house_num} {street}, {city}, {state} {postal_code}".strip(", "),
-            'postal_code': postal_code,
-            'street': f"{house_num} {street}".strip(),
-            'city': city,
-            'state': state,
+            'formatted_address': formatted_address,
+            'postal_code': postcode_field,
+            'street': street_field,
+            'city': city_field,
+            'state': state_field,
             'original_gps_location': {'latitude': float(lat), 'longitude': float(lon)},
             'gplace_id': osm_native_id,
             'search_sport_type': search_sport_type,
@@ -169,20 +322,25 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
         fields.append(field)
     return fields
 
+
 def parse_google_elements(google_data, search_sport_type, city, state, postal_code):
+    """
+    Parses Google Places API elements using uniform keys matching the database format.
+    """
     fields = []
     for res in google_data.get("results", []):
         lat = res["geometry"]["location"]["lat"]
         lon = res["geometry"]["location"]["lng"]
-        
-        # Native Google Place ID
         place_id = res.get("place_id", f"unknown_google_{lat}_{lon}")
         
+        formatted_address = res.get("formatted_address", "")
+        street_field = formatted_address.split(",")[0].strip() if formatted_address else ""
+        
         field = {
-            'field_name': res.get("name", f"Google Facility Location"),
-            'formatted_address': res.get("formatted_address", ""),
+            'field_name': res.get("name", "Google Facility Location"),
+            'formatted_address': formatted_address if formatted_address else f"{city}, {state} {postal_code}",
             'postal_code': postal_code,
-            'street': res.get("formatted_address", "").split(",")[0], # Rough extraction
+            'street': street_field,
             'city': city,
             'state': state,
             'original_gps_location': {'latitude': float(lat), 'longitude': float(lon)},
@@ -193,7 +351,6 @@ def parse_google_elements(google_data, search_sport_type, city, state, postal_co
         }
         fields.append(field)
     return fields
-
 # ---------------------------------------------------------
 # DATABASE DEDUPLICATION & METRIC FUNCTIONS (FIXED CHANGELOG 1)
 # ---------------------------------------------------------
@@ -260,10 +417,14 @@ def delete_duplicates():
         if conn: pool.putconn(conn)
 
 # ---------------------------------------------------------
-# IMPLEMENTING PIPELINE CODE BLOCKS (FIXED CHANGELOG 2)
+# IMPLEMENTING PIPELINE CODE BLOCKS (FIXED)
+# ---------------------------------------------------------
+# ---------------------------------------------------------
+# IMPLEMENTING PIPELINE CODE BLOCKS (FIXED)
 # ---------------------------------------------------------
 def log_processed(state_code, city, zip_code):
     print(f"Log Execution Metric: Processed batch for {city}, {state_code} {zip_code}")
+
 
 def save_field_data(fields):
     if not fields: return
@@ -271,34 +432,75 @@ def save_field_data(fields):
     try:
         conn = pool.getconn()
         cur = conn.cursor()
+        
+        inserted_count = 0
+        updated_count = 0
+        
         for f in fields:
             gps_str = f"{f['original_gps_location']['latitude']},{f['original_gps_location']['longitude']}"
             
-            # Using 'postal_code' and 'state' to match the database schema
-            cur.execute("""
-                INSERT INTO public.new_google_earth 
-                (field_name, formatted_address, postal_code, street, city, state, gps_location, gearth_link, search_sport_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING;
-            """, (
-                f['field_name'], 
-                f['formatted_address'], 
-                f['postal_code'], 
-                f['street'], 
-                f['city'], 
-                f['state'], 
-                gps_str, 
-                f['gearth_link'], 
-                f['search_sport_type']
-            ))
+            # Foolproof Check: Look up if this gplace_id already exists in your database
+            cur.execute("SELECT field_search_id FROM public.new_google_earth WHERE gplace_id = %s;", (f['gplace_id'],))
+            existing_record = cur.fetchone()
+            
+            if existing_record:
+                # True Upsert: If it exists, update its details
+                cur.execute("""
+                    UPDATE public.new_google_earth SET
+                        field_name        = %s,
+                        formatted_address = %s,
+                        postal_code       = %s,
+                        street            = %s,
+                        city              = %s,
+                        state             = %s,
+                        gps_location      = %s,
+                        gearth_link       = %s,
+                        search_sport_type = %s
+                    WHERE gplace_id = %s;
+                """, (
+                    f['field_name'], 
+                    f['formatted_address'], 
+                    f['postal_code'], 
+                    f['street'], 
+                    f['city'], 
+                    f['state'], 
+                    gps_str, 
+                    f['gearth_link'], 
+                    f['search_sport_type'],
+                    f['gplace_id']
+                ))
+                updated_count += 1
+            else:
+                # If it doesn't exist, insert it fresh
+                cur.execute("""
+                    INSERT INTO public.new_google_earth 
+                    (field_name, formatted_address, postal_code, street, city, state, gps_location, gearth_link, search_sport_type, gplace_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """, (
+                    f['field_name'], 
+                    f['formatted_address'], 
+                    f['postal_code'], 
+                    f['street'], 
+                    f['city'], 
+                    f['state'], 
+                    gps_str, 
+                    f['gearth_link'], 
+                    f['search_sport_type'],
+                    f['gplace_id']
+                ))
+                inserted_count += 1
+                
         conn.commit()
-        print(f"Saved {len(fields)} records to the database.")
+        print(f"Successfully processed {len(fields)} API records. (Inserted: {inserted_count}, Updated: {updated_count})")
     except Exception as e:
         print("Database error inside save_field_data:", e)
+        if conn:
+            conn.rollback()
     finally:
         if cur: cur.close()
         if conn: pool.putconn(conn)
         
+
 def object_detection_based_modification_by_class(field_id, img_array, model, gps_loc, target_classes, zoom_level=18):
     modified_records = []
     try:
@@ -318,7 +520,6 @@ def object_detection_based_modification_by_class(field_id, img_array, model, gps
                     adjusted_lat = gps_loc['latitude'] + lat_offset
                     adjusted_lon = gps_loc['longitude'] + lon_offset
                     
-                    # Convert the integer class_id to the sport name string
                     sport_label = display_names.get(class_id, f"Unknown_{class_id}")
                     
                     modified_records.append({
@@ -331,6 +532,8 @@ def object_detection_based_modification_by_class(field_id, img_array, model, gps
         print(f"Error executing frame spatial modification offsets: {e}")
     return modified_records
 
+
+# RESTORED: This function was missing from your script
 def save_object_data(nge_objects):
     if not nge_objects: return
     conn, cur = None, None
@@ -338,7 +541,6 @@ def save_object_data(nge_objects):
         conn = pool.getconn()
         cur = conn.cursor()
         for obj in nge_objects:
-            # We must convert confidence_score to a string because your database column 'detect_confidence' is character varying
             conf_str = str(obj['confidence_score'])
             
             cur.execute("""
@@ -357,6 +559,9 @@ def save_object_data(nge_objects):
 
 # ---------------------------------------------------------
 # MAIN EXECUTION ENTRYPOINT
+# ---------------------------------------------------------
+# ---------------------------------------------------------
+# MAIN EXECUTION ENTRYPOINT (FIXED DATABASE FILTERING)
 # ---------------------------------------------------------
 if __name__ == "__main__":
     state_code = input("Enter state code : ").strip().upper()
@@ -379,7 +584,6 @@ if __name__ == "__main__":
     all_fields = []
     
     for sport_id, sport_name in SPORT_TAGS.items():
-        
         # Fetch from OSM
         if source_choice in ['1', '3'] and bbox:
             print(f"Querying OSM for: '{sport_name}' in {zip_code}")
@@ -400,26 +604,49 @@ if __name__ == "__main__":
             log_processed(state_code, city, zip_code)
         except NameError:
             pass
+    else:
+        print(f"ℹ️ No new fields found via live APIs for ZIP code {zip_code}.")
                 
-   # delete_duplicates()
-    
     # Run spatial recentering via YOLO
-    df = get_field_data()
-    print(df)
+    # FIXED: Direct database pull targeting only the requested ZIP code
+    print(f"Retrieving database records strictly for ZIP code: {zip_code}")
+    db_fields = []
+    try:
+        conn = pool.getconn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT field_search_id, field_name, gps_location 
+            FROM public.new_google_earth 
+            WHERE postal_code = %s;
+        """, (zip_code,))
+        columns = [desc[0] for desc in cur.description]
+        db_fields = [dict(zip(columns, row)) for row in cur.fetchall()]
+    except Exception as e:
+        print(f"Error fetching filtered fields from database: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
+
+    print(f"Rows matching criteria for YOLO processing: {len(db_fields)}")
+    
     nge_object = []
     all_target_class_ids = [4, 5, 9, 10, 14, 16]
-    for index, row in df.iterrows():
+    
+    for row in db_fields:
+        field_id = row['field_search_id']
         print(f"Processing field: {row['field_name']} at {row['gps_location']}")
+        
         lat, lon = row['gps_location'].split(",")
         gps_loc = {'latitude': float(lat), 'longitude': float(lon)}
         img_array = get_satellite_image_array(gps_loc)
+        
         if img_array is not None:
-            modified_locations = object_detection_based_modification_by_class( #Check this after the jsons.
-                row['field_id'], img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
+            modified_locations = object_detection_based_modification_by_class(
+                field_id, img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
             )
             nge_object.extend(modified_locations)
     
-    save_object_data(nge_object)
+    if nge_object:
+        save_object_data(nge_object)
+        
     print("Data input process completed successfully.")
-                
-   
