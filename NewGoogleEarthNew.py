@@ -17,7 +17,7 @@ from ConnectionPool import pool
 
 # Set up the config file
 KEY = 'AIzaSyC5cT2KgRuUuz51GQ71DvY8gB_VN8O8EtE' # Note: Be careful exposing your API keys publicly!
-file = r'D:\Gameplay_FieldAutomation_full_v3 - Copy\config.ini'
+file = r'C:\Users\adrgu\field-search-automation\config.ini'
 config = ConfigParser()
 config.read(file)
 print("Loaded Config Sections:", config.sections())                      
@@ -214,6 +214,57 @@ def construct_facility_name(tags, default_sport_name="Field"):
 # ---------------------------------------------------------
 # PARSING & REVERSE GEOCODING ENRICHMENT FUNCTIONS
 # ---------------------------------------------------------
+def get_nearest_street_via_osm(lat, lon, radius=150):
+    """
+    Queries Overpass to find the closest named public road
+    within a specified radius of the coordinates.
+    """
+    endpoint = "https://overpass-api.de/api/interpreter"
+    # Filters for real drivable roads, avoiding unnamed paths/sidewalks
+    query = f"""
+    [out:json][timeout:15];
+    (
+      way["highway"~"residential|tertiary|secondary|primary|unclassified|service"]["name"](around:{radius},{lat},{lon});
+    );
+    out tags;
+    """
+    headers = {"User-Agent": "SportsFacilityFinder/1.0"}
+    try:
+        response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            elements = data.get("elements", [])
+            if elements:
+                # Returns the first/closest matching road name found
+                return elements[0].get("tags", {}).get("name", "").strip()
+    except Exception as e:
+        print(f"Failed to find nearest street via Overpass spatial scan: {e}")
+    return None
+def get_nearest_address_via_osm(lat, lon, radius=200):
+    """
+    Queries Overpass to find the closest object that has an explicit 
+    house number and street name tagged near the coordinates.
+    """
+    endpoint = "https://overpass-api.de/api/interpreter"
+    query = f"""
+    [out:json][timeout:15];
+    nwr["addr:housenumber"]["addr:street"](around:{radius},{lat},{lon});
+    out center;
+    """
+    headers = {"User-Agent": "SportsFacilityFinder/1.0"}
+    try:
+        response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            elements = data.get("elements", [])
+            if elements:
+                # Extract the tags from the closest matching addressed feature
+                tags = elements[0].get("tags", {})
+                return tags.get("addr:housenumber", "").strip(), tags.get("addr:street", "").strip()
+    except Exception as e:
+        print(f"Failed to find nearest address via Overpass spatial scan: {e}")
+    return None, None
+
 def enrich_location_via_photon(lat, lon, default_city, default_state, default_zip, sport_label):
     """
     Queries Photon reverse geocoding to resolve the real-world 
@@ -250,12 +301,21 @@ def enrich_location_via_photon(lat, lon, default_city, default_state, default_zi
                     name = f"{photon_name} ({sport_label} Field)"
                 elif photon_street:
                     name = f"{photon_street} {sport_label} Field"
+                if not photon_street:
+                    print(f"Address details missing for '{photon_name}' at {lat},{lon}. Scanning for closest address...")
+                    nearest_house, nearest_road = get_nearest_address_via_osm(lat, lon)
+                    if nearest_road:
+                        photon_street = nearest_road
+                        if nearest_house:
+                            photon_house = nearest_house
                     
-                street = photon_street
                 if photon_house and photon_street:
                     street_line = f"{photon_house} {photon_street}"
                 else:
                     street_line = photon_street if photon_street else photon_name
+                    
+                # FIX: Fall back to the facility name if a formal street name is missing
+                street = street_line if street_line else "Unnamed Road"
                     
                 if street_line:
                     address = f"{street_line}, {photon_city}, {photon_state} {photon_postcode}"
@@ -269,15 +329,42 @@ def enrich_location_via_photon(lat, lon, default_city, default_state, default_zi
         print(f"Photon reverse enrichment failed for ({lat}, {lon}): {e}")
         
     return name, address, street, city, state, postcode
-
+def get_osm_parent_name(lat, lon, radius=80):
+    """
+    Queries Overpass to find a named parent facility (like a park, school, or campus)
+    surrounding or immediately adjacent to the unnamed pitch coordinates.
+    """
+    endpoint = "https://overpass-api.de/api/interpreter"
+    query = f"""
+    [out:json][timeout:15];
+    (
+      nwr["leisure"="park"]["name"](around:{radius},{lat},{lon});
+      nwr["amenity"~"school|university|college"]["name"](around:{radius},{lat},{lon});
+      nwr["leisure"="sports_centre"]["name"](around:{radius},{lat},{lon});
+      nwr["landuse"~"recreation_ground|education"]["name"](around:{radius},{lat},{lon});
+    );
+    out tags;
+    """
+    headers = {"User-Agent": "SportsFacilityFinder/1.0"}
+    try:
+        response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            elements = data.get("elements", [])
+            if elements:
+                # Return the name of the closest or first matching parent feature found
+                return elements[0].get("tags", {}).get("name", "").strip()
+    except Exception as e:
+        print(f"Failed to fetch OSM parent container name: {e}")
+    return None
 
 def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
     """
     Parses OpenStreetMap elements and automatically enriches empty records
-    using live coordinate-based reverse geocoding lookups.
+    using live coordinate-based parent lookups and reverse geocoding.
     """
     fields = []
-    sport_str = SPORT_TAGS.get(search_sport_type, "Facility").title()
+    sport_str = SPORT_TAGS.get(search_sport_type, "Field").title()
 
     for el in osm_data.get("elements", []):
         lat = el.get("center", {}).get("lat", el.get("lat"))
@@ -291,8 +378,20 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
         has_native_name = tags.get("name") is not None
         has_native_address = tags.get("addr:street") is not None
         
-        if has_native_name and has_native_address:
+        # --- 1. RESOLVE FACILITY NAME ---
+        if has_native_name:
             raw_name = tags.get("name").strip()
+        else:
+            # Look up surrounding named Park/School polygons in OSM
+            print(f"Pitch missing name at {lat},{lon}. Searching OSM parent boundaries...")
+            parent_name = get_osm_parent_name(lat, lon)
+            if parent_name:
+                raw_name = f"{parent_name} ({sport_str} Field)"
+            else:
+                raw_name = None  # Let the address-based naming engine handle it if nothing is found
+        
+        # --- 2. RESOLVE ADDRESS & BACKUP NAME ---
+        if has_native_address:
             street_field = tags.get('addr:street', '').strip()
             housenumber = tags.get('addr:housenumber', '').strip()
             if housenumber:
@@ -301,10 +400,18 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
             state_field = tags.get('addr:state', state).strip()
             postcode_field = tags.get('addr:postcode', postal_code).strip()
             formatted_address = tags.get('addr:full', f"{street_field}, {city_field}, {state_field} {postcode_field}").strip()
+            
+            # If parent lookup failed, construct name using the verified street
+            if not raw_name:
+                raw_name = f"{street_field} {sport_str} Field"
         else:
-            raw_name, formatted_address, street_field, city_field, state_field, postcode_field = enrich_location_via_photon(
+            # Fallback to Photon reverse-geocoding if no native address tags exist
+            photon_name, formatted_address, street_field, city_field, state_field, postcode_field = enrich_location_via_photon(
                 lat, lon, city, state, postal_code, sport_str
             )
+            # Use Photon's guessed name only if our Overpass parent search didn't locate a better boundary
+            if not raw_name:
+                raw_name = photon_name
 
         field = {
             'field_name': raw_name,
@@ -321,7 +428,6 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
         }
         fields.append(field)
     return fields
-
 
 def parse_google_elements(google_data, search_sport_type, city, state, postal_code):
     """
@@ -354,15 +460,17 @@ def parse_google_elements(google_data, search_sport_type, city, state, postal_co
 # ---------------------------------------------------------
 # DATABASE DEDUPLICATION & METRIC FUNCTIONS (FIXED CHANGELOG 1)
 # ---------------------------------------------------------
-def delete_duplicates():
-    if 'database' not in config: return
+def delete_duplicates(target_zip):
+    """
+    Identifies overlapping cross-source fields inside the same park boundary/zip code 
+    using a 80-meter spatial radius and removes the duplicates dynamically.
+    """
     conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
         
-        # FIXED: Pure SQL Haversine Distance computation replacement for PostGIS ST_ClusterDBSCAN.
-        # This groups rows that share the same sport_type and fall within ~50 meters (0.05 km) of each other.
+        # Validated pure spatial join filtering matching pairs within ~0.08 kilometers
         delete_query = """
         WITH parsed_gps AS (
             SELECT 
@@ -371,47 +479,37 @@ def delete_duplicates():
                 SPLIT_PART(gps_location, ',', 1)::float AS lat,
                 SPLIT_PART(gps_location, ',', 2)::float AS lon
             FROM public.new_google_earth
-            -- Add this WHERE clause to ensure only valid 'lat,lon' coordinates are parsed
-            -- Notice the double backslashes before the question marks
-            WHERE gps_location ~ '^[-+]?[0-9]*\\.?[0-9]+,[-+]?[0-9]*\\.?[0-9]+$'
+            WHERE postal_code = %s
+              AND gps_location ~ '^[-+]?[0-9]*\\.?[0-9]+,[-+]?[0-9]*\\.?[0-9]+$'
         ),
-        spatial_ranking AS (
-            SELECT 
-                p1.field_search_id,
-                ROW_NUMBER() OVER (
-                    PARTITION BY p1.search_sport_type, MIN(p2.field_search_id)
-                    ORDER BY p1.field_search_id
-                ) AS rn
+        duplicate_ids AS (
+            SELECT DISTINCT p2.field_search_id
             FROM parsed_gps p1
-            LEFT JOIN parsed_gps p2 ON p1.search_sport_type = p2.search_sport_type
+            JOIN parsed_gps p2 ON p1.search_sport_type = p2.search_sport_type
+                AND p1.field_search_id < p2.field_search_id
                 AND (
                     6371 * acos(
-                        -- Clamp the floating point math perfectly between -1.0 and 1.0
                         LEAST(1.0, GREATEST(-1.0, 
                             cos(radians(p1.lat)) * cos(radians(p2.lat)) * cos(radians(p2.lon) - radians(p1.lon)) + 
                             sin(radians(p1.lat)) * sin(radians(p2.lat))
                         ))
                     )
-                ) <= 0.05
-            GROUP BY p1.field_search_id, p1.search_sport_type
-        ),
-        duplicate_ids AS (
-            SELECT field_search_id FROM spatial_ranking WHERE rn > 1
+                ) <= 0.08
         ),
         deleted_objects AS (
             DELETE FROM public.nge_object 
             WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids)
-            RETURNING field_search_id
         )
         DELETE FROM public.new_google_earth 
         WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids);
         """
         
-        cur.execute(delete_query)
+        cur.execute(delete_query, (target_zip,))
         conn.commit()
-        print("Cleaned up overlapping spatial duplicate rows via Haversine evaluation.")
+        print(f"🧹 Successfully deduplicated cross-source park variants for ZIP: {target_zip}")
     except Exception as error:
-        print("Error during database duplicate cleaning:", error)
+        print("Error executing database duplicate cleaning sequence:", error)
+        if conn: conn.rollback()
     finally:
         if cur: cur.close()
         if conn: pool.putconn(conn)
@@ -540,23 +638,42 @@ def save_object_data(nge_objects):
     try:
         conn = pool.getconn()
         cur = conn.cursor()
+        
+        # Pull distinct target IDs processed in this batch
+        distinct_field_ids = list(set(obj['field_search_id'] for obj in nge_objects))
+        
+        # 1. Clean out old model records for these fields in nge_object first
+        cur.execute("""
+            DELETE FROM public.nge_object 
+            WHERE field_search_id = ANY(%s);
+        """, (distinct_field_ids,))
+        
         for obj in nge_objects:
-            conf_str = str(obj['confidence_score'])
+            # Build a helpful description showing the detection confidence
+            conf_percent = obj['confidence_score'] * 100
+            desc = f"Detected via YOLO with {conf_percent:.1f}% confidence"
             
+            # 2. Insert the metadata into nge_object using its correct schema
             cur.execute("""
-                INSERT INTO public.nge_object (field_search_id, detected_sport, detect_confidence, adjusted_gps_location)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT DO NOTHING;
-            """, (obj['field_search_id'], obj['sport_name'], conf_str, obj['adjusted_gps']))
+                INSERT INTO public.nge_object (field_search_id, sport_name, description)
+                VALUES (%s, %s, %s);
+            """, (obj['field_search_id'], obj['sport_name'], desc))
+            
+            # 3. Update the high-precision adjusted coordinates in new_google_earth
+            cur.execute("""
+                UPDATE public.new_google_earth 
+                SET gps_location = %s 
+                WHERE field_search_id = %s;
+            """, (obj['adjusted_gps'], obj['field_search_id']))
+            
         conn.commit()
-        print(f"Recorded {len(nge_objects)} spatial map target markers into nge_object table.")
+        print(f"🔄 Successfully updated gps_locations in new_google_earth and logged {len(nge_objects)} details in nge_object.")
     except Exception as e:
-        print(f"Error writing to nge_object table: {e}")
+        print(f"Error writing to database tables: {e}")
+        if conn: conn.rollback()
     finally:
         if cur: cur.close()
         if conn: pool.putconn(conn)
-
-
 # ---------------------------------------------------------
 # MAIN EXECUTION ENTRYPOINT
 # ---------------------------------------------------------
@@ -600,6 +717,9 @@ if __name__ == "__main__":
 
     if all_fields:
         save_field_data(all_fields)
+        
+        delete_duplicates(zip_code)
+        
         try:
             log_processed(state_code, city, zip_code)
         except NameError:
