@@ -17,7 +17,7 @@ from ConnectionPool import pool
 
 # Set up the config file
 KEY = 'AIzaSyC5cT2KgRuUuz51GQ71DvY8gB_VN8O8EtE'
-file = r'D:\Gameplay_FieldAutomation_full_v3\config.ini'
+file = r'C:\Users\adrgu\field-search-automation\config.ini'
 config = ConfigParser()
 config.read(file)
 print("Loaded Config Sections:", config.sections())                      
