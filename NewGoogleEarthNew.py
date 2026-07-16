@@ -7,6 +7,7 @@ import os
 import json
 import numpy as np
 import pyproj
+import re
 from pyproj import Transformer
 import collections.abc
 from ultralytics import YOLO
@@ -94,7 +95,16 @@ def fetch_zip_bbox_via_photon(zip_code, state_code):
 # ---------------------------------------------------------
 #Print the json on the screen
 def get_fields_from_overpass(bbox, sport_name):
-    endpoint = "https://overpass-api.de/api/interpreter"
+    import time  # Imported locally to avoid external dependency issues
+    
+    # List of reliable public Overpass API mirrors
+    endpoints = [
+        "https://overpass-api.de/api/interpreter",          # Main Server (often overloaded)
+        "https://overpass.kumi.systems/api/interpreter",    # Kumi Systems (highly reliable backup)
+        "https://overpass.openstreetmap.ru/api/interpreter",# Russian Mirror
+        "https://overpass.nchc.org.tw/api/interpreter"      # Taiwanese Mirror
+    ]
+    
     min_lat, min_lon, max_lat, max_lon = bbox
     query = f"""
     [out:json][timeout:30];
@@ -105,32 +115,35 @@ def get_fields_from_overpass(bbox, sport_name):
     out center;
     """
     
-    # 1. Define the User-Agent header
     headers = {"User-Agent": "SportsFacilityFinder/1.0"}
     
-    try:
-        # 2. Add headers=headers to the requests.post call
-        response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=30)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Overpass API evaluation failed for {sport_name}: {e}")
-        return {"elements": []}
-    
-def get_fields_from_google(zip_code, sport_name, api_key):
-    """Fetches locations using Google Places Text Search API."""
-    url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-    query = f"{sport_name} field in {zip_code}"
-    params = {"query": query, "key": api_key}
-    
-    try:
-        response = requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"Google Places API failed for {sport_name}: {e}")
-        return {"results": []}
-
+    for endpoint in endpoints:
+        # Try each server up to 2 times before falling back to the next mirror
+        for attempt in range(2):
+            try:
+                # Lowering timeout to 15s so it fails over faster instead of hanging
+                response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=15)
+                
+                # Handle 429 (Rate Limited) with exponential backoff
+                if response.status_code == 429:
+                    print(f"⚠️ Mirror {endpoint} returned 429 (Rate Limited). Retrying in 3s...")
+                    time.sleep(3)
+                    continue
+                    
+                # Handle 504 or other server issues by breaking out to try the next mirror
+                if response.status_code >= 500:
+                    print(f"⚠️ Mirror {endpoint} returned {response.status_code} (Server Error). Swapping mirrors...")
+                    break  
+                
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ Connection failed for mirror {endpoint} (Attempt {attempt + 1}/2): {e}")
+                time.sleep(1)
+                
+    print(f"All Overpass API mirrors failed or timed out for sport '{sport_name}'.")
+    return {"elements": []}
 # ---------------------------------------------------------
 # PARSING FUNCTIONS
 #Look at json and see the mapping and verify
@@ -166,8 +179,87 @@ def extract_clean_address(tags):
         parts.append(postcode)
         
     return ", ".join(parts) if parts else None
+def get_base_name(name):
+    """""
+    Strips trailing parenthesis sports lists for raw facility name
+    """
+    if not name:
+        return ""
+    return re.sub(r'\s*\([^)]*\)\s*$', '', name).strip()
+import re  # Ensure this is imported at the very top of your script
+
+def haversine(lat1, lon1, lat2, lon2):
+    """
+    Calculates the great-circle distance between two GPS coordinates in meters.
+    """
+    from math import radians, cos, sin, asin, sqrt
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a))
+    return c * 6371000  # Returns distance in meters
 
 
+def group_incoming_fields(fields):
+    """
+    Groups incoming fields in memory based on:
+    - Distance less than 120 meters apart AND same facility name.
+    - OR identical street address AND same facility name.
+    - OR exact match of facility name AND full formatted address.
+    """
+    grouped = []
+    for f in fields:
+        lat = f['original_gps_location']['latitude']
+        lon = f['original_gps_location']['longitude']
+        street = (f['street'] or '').strip().lower()
+        addr = (f['formatted_address'] or '').strip().lower()
+        base_name = get_base_name(f['field_name']).lower()
+        
+        match = None
+        for g in grouped:
+            g_lat = g['original_gps_location']['latitude']
+            g_lon = g['original_gps_location']['longitude']
+            g_street = (g['street'] or '').strip().lower()
+            g_addr = (g['formatted_address'] or '').strip().lower()
+            g_base_name = get_base_name(g['field_name']).lower()
+            
+            # Calculate physical distance
+            dist = haversine(lat, lon, g_lat, g_lon)
+            
+            # Match based on spatial proximity OR exact street address OR exact full address matching
+            same_facility = (
+                (dist < 120.0 and base_name == g_base_name and base_name != "") or
+                (street == g_street and base_name == g_base_name and street != "" and base_name != "") or
+                (addr == g_addr and base_name == g_base_name and addr != "" and base_name != "")
+            )
+            
+            if same_facility:
+                match = g
+                break
+                
+        sport_name = SPORT_TAGS.get(f['search_sport_type'], "Field").title()
+        if match:
+            if 'sports' not in match:
+                match['sports'] = {SPORT_TAGS.get(match['search_sport_type'], "Field").title()}
+            match['sports'].add(sport_name)
+            match['coords_list'].append((lat, lon))
+            match['number_of_fields'] += 1
+        else:
+            f_copy = f.copy()
+            f_copy['sports'] = {sport_name}
+            f_copy['coords_list'] = [(lat, lon)]
+            f_copy['number_of_fields'] = 1
+            grouped.append(f_copy)
+            
+    # Calculate the centralized centroid coordinate for each grouped facility
+    for g in grouped:
+        lats = [c[0] for c in g['coords_list']]
+        lons = [c[1] for c in g['coords_list']]
+        g['original_gps_location']['latitude'] = sum(lats) / len(lats)
+        g['original_gps_location']['longitude'] = sum(lons) / len(lons)
+        
+    return grouped
 def construct_facility_name(tags, default_sport_name="Field"):
     """
     Implements the advanced name fallback architecture from qlever_v_6.
@@ -526,23 +618,83 @@ def log_processed(state_code, city, zip_code):
 
 def save_field_data(fields):
     if not fields: return
+    
+    # 1. Group incoming API elements in memory first
+    grouped_fields = group_incoming_fields(fields)
+    target_zip = fields[0]['postal_code']
+    
     conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
         
+        # Fetch existing ZIP records once to matching against in memory
+        cur.execute("""
+            SELECT field_search_id, field_name, gps_location, street, formatted_address, number_of_fields 
+            FROM public.new_google_earth 
+            WHERE postal_code = %s;
+        """, (target_zip,))
+        
+        db_records = []
+        for row in cur.fetchall():
+            db_records.append({
+                'field_search_id': row[0],
+                'field_name': row[1],
+                'gps_location': row[2],
+                'street': row[3],
+                'formatted_address': row[4],    # Key map index 4
+                'number_of_fields': row[5] or 1 # Shifted index to 5
+            })
+            
         inserted_count = 0
         updated_count = 0
         
-        for f in fields:
-            gps_str = f"{f['original_gps_location']['latitude']},{f['original_gps_location']['longitude']}"
+        for f in grouped_fields:
+            lat = f['original_gps_location']['latitude']
+            lon = f['original_gps_location']['longitude']
+            gps_str = f"{lat},{lon}"
+            street = (f['street'] or '').strip().lower()
+            addr = (f['formatted_address'] or '').strip().lower()
+            base_name = get_base_name(f['field_name']).lower()
             
-            # Foolproof Check: Look up if this gplace_id already exists in your database
-            cur.execute("SELECT field_search_id FROM public.new_google_earth WHERE gplace_id = %s;", (f['gplace_id'],))
-            existing_record = cur.fetchone()
+            db_match = None
+            for db in db_records:
+                try:
+                    db_lat, db_lon = map(float, db['gps_location'].split(','))
+                except ValueError:
+                    continue
+                    
+                db_street = (db['street'] or '').strip().lower()
+                db_addr = (db['formatted_address'] or '').strip().lower()
+                db_base_name = get_base_name(db['field_name']).lower()
+                
+                dist = haversine(lat, lon, db_lat, db_lon)
+                
+                # Added exact database address match checks
+                same_facility = (
+                    (dist < 200.0 and base_name == db_base_name and base_name != "") or
+                    (street == db_street and base_name == db_base_name and street != "" and base_name != "") or
+                    (addr == db_addr and base_name == db_base_name and addr != "" and base_name != "")
+                )
+                
+                if same_facility:
+                    db_match = db
+                    break
             
-            if existing_record:
-                # True Upsert: If it exists, update its details
+            # --- RESTORED SQL EXECUTION SEQUENCE ---
+            existing_sports = set()
+            if db_match:
+                match_paren = re.search(r'\(([^)]+)\)\s*$', db_match['field_name'])
+                if match_paren:
+                    parts = [p.strip().title() for p in match_paren.group(1).split(',')]
+                    existing_sports.update(parts)
+            
+            combined_sports = existing_sports.union(f['sports'])
+            sports_list_str = ", ".join(sorted(list(combined_sports)))
+            final_field_name = f"{get_base_name(f['field_name'])} ({sports_list_str})"
+            final_num_fields = f['number_of_fields']
+            
+            if db_match:
                 cur.execute("""
                     UPDATE public.new_google_earth SET
                         field_name        = %s,
@@ -553,10 +705,10 @@ def save_field_data(fields):
                         state             = %s,
                         gps_location      = %s,
                         gearth_link       = %s,
-                        search_sport_type = %s
-                    WHERE gplace_id = %s;
+                        number_of_fields  = %s
+                    WHERE field_search_id = %s;
                 """, (
-                    f['field_name'], 
+                    final_field_name, 
                     f['formatted_address'], 
                     f['postal_code'], 
                     f['street'], 
@@ -564,18 +716,17 @@ def save_field_data(fields):
                     f['state'], 
                     gps_str, 
                     f['gearth_link'], 
-                    f['search_sport_type'],
-                    f['gplace_id']
+                    final_num_fields,
+                    db_match['field_search_id']
                 ))
                 updated_count += 1
             else:
-                # If it doesn't exist, insert it fresh
                 cur.execute("""
                     INSERT INTO public.new_google_earth 
-                    (field_name, formatted_address, postal_code, street, city, state, gps_location, gearth_link, search_sport_type, gplace_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                    (field_name, formatted_address, postal_code, street, city, state, gps_location, gearth_link, search_sport_type, gplace_id, number_of_fields)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, (
-                    f['field_name'], 
+                    final_field_name, 
                     f['formatted_address'], 
                     f['postal_code'], 
                     f['street'], 
@@ -583,13 +734,14 @@ def save_field_data(fields):
                     f['state'], 
                     gps_str, 
                     f['gearth_link'], 
-                    f['search_sport_type'],
-                    f['gplace_id']
+                    f['search_sport_type'], 
+                    f['gplace_id'],
+                    final_num_fields
                 ))
                 inserted_count += 1
                 
         conn.commit()
-        print(f"Successfully processed {len(fields)} API records. (Inserted: {inserted_count}, Updated: {updated_count})")
+        print(f"Cleanly grouped and processed records. (Inserted unique: {inserted_count}, Merged/Updated: {updated_count})")
     except Exception as e:
         print("Database error inside save_field_data:", e)
         if conn:
@@ -597,8 +749,6 @@ def save_field_data(fields):
     finally:
         if cur: cur.close()
         if conn: pool.putconn(conn)
-        
-
 def object_detection_based_modification_by_class(field_id, img_array, model, gps_loc, target_classes, zoom_level=18):
     modified_records = []
     try:
@@ -711,21 +861,21 @@ if __name__ == "__main__":
         # Fetch from Google Maps
         if source_choice in ['2', '3']:
             print(f"Querying Google Places for: '{sport_name}' in {zip_code}")
-            google_json = get_fields_from_google(zip_code, sport_name, KEY)
+            # --- CORRECTED: Changed get_fields_from_google to get_field_data ---
+            google_json = get_field_data(zip_code, sport_name, KEY)
             google_fields = parse_google_elements(google_json, sport_id, city, state_code, zip_code)
             all_fields.extend(google_fields)
-
     if all_fields:
         save_field_data(all_fields)
         
-        delete_duplicates(zip_code)
+        "delete_duplicates(zip_code)"
         
         try:
             log_processed(state_code, city, zip_code)
         except NameError:
             pass
     else:
-        print(f"ℹ️ No new fields found via live APIs for ZIP code {zip_code}.")
+        print(f"No new fields found via live APIs for ZIP code {zip_code}.")
                 
     # Run spatial recentering via YOLO
     # FIXED: Direct database pull targeting only the requested ZIP code
