@@ -18,7 +18,7 @@ from ConnectionPool import pool
 
 # Set up the config file
 KEY = 'AIzaSyC5cT2KgRuUuz51GQ71DvY8gB_VN8O8EtE' # Note: Be careful exposing your API keys publicly!
-file = r'C:\Users\adrgu\field-search-automation\config.ini'
+file = r'D:\Gameplay_FieldAutomation_full_v3 - Copy\config.ini'
 config = ConfigParser()
 config.read(file)
 print("Loaded Config Sections:", config.sections())                      
@@ -95,19 +95,19 @@ def fetch_zip_bbox_via_photon(zip_code, state_code):
 # ---------------------------------------------------------
 #Print the json on the screen
 def get_fields_from_overpass(bbox, sport_name):
-    import time  # Imported locally to avoid external dependency issues
+    import time
     
-    # List of reliable public Overpass API mirrors
+    # Active public Overpass API mirrors
     endpoints = [
-        "https://overpass-api.de/api/interpreter",          # Main Server (often overloaded)
-        "https://overpass.kumi.systems/api/interpreter",    # Kumi Systems (highly reliable backup)
-        "https://overpass.openstreetmap.ru/api/interpreter",# Russian Mirror
-        "https://overpass.nchc.org.tw/api/interpreter"      # Taiwanese Mirror
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter"
     ]
     
     min_lat, min_lon, max_lat, max_lon = bbox
     query = f"""
-    [out:json][timeout:30];
+    [out:json][timeout:45];
     (
       nwr["leisure"="pitch"]["sport"="{sport_name}"]({min_lat},{min_lon},{max_lat},{max_lon});
       nwr["leisure"="stadium"]["sport"="{sport_name}"]({min_lat},{min_lon},{max_lat},{max_lon});
@@ -118,28 +118,24 @@ def get_fields_from_overpass(bbox, sport_name):
     headers = {"User-Agent": "SportsFacilityFinder/1.0"}
     
     for endpoint in endpoints:
-        # Try each server up to 2 times before falling back to the next mirror
         for attempt in range(2):
             try:
-                # Lowering timeout to 15s so it fails over faster instead of hanging
-                response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=15)
+                response = requests.post(endpoint, data={"data": query}, headers=headers, timeout=45)
                 
-                # Handle 429 (Rate Limited) with exponential backoff
                 if response.status_code == 429:
-                    print(f"⚠️ Mirror {endpoint} returned 429 (Rate Limited). Retrying in 3s...")
+                    print(f"Mirror {endpoint} returned 429 (Rate Limited). Retrying in 3s...")
                     time.sleep(3)
                     continue
                     
-                # Handle 504 or other server issues by breaking out to try the next mirror
                 if response.status_code >= 500:
-                    print(f"⚠️ Mirror {endpoint} returned {response.status_code} (Server Error). Swapping mirrors...")
+                    print(f"Mirror {endpoint} returned {response.status_code} (Server Error). Swapping mirrors...")
                     break  
                 
                 response.raise_for_status()
                 return response.json()
                 
             except requests.exceptions.RequestException as e:
-                print(f"⚠️ Connection failed for mirror {endpoint} (Attempt {attempt + 1}/2): {e}")
+                print(f"Connection failed for mirror {endpoint} (Attempt {attempt + 1}/2): {e}")
                 time.sleep(1)
                 
     print(f"All Overpass API mirrors failed or timed out for sport '{sport_name}'.")
@@ -200,14 +196,102 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * asin(sqrt(a))
     return c * 6371000  # Returns distance in meters
 
+def backfill_missing_objects(zip_code=None):
+    """
+    Scans for any records in new_google_earth that lack an entry in nge_object.
+    Attempts YOLO detection for missing rows, and generates default entries 
+    if image fetching fails or YOLO yields 0 detections.
+    """
+    conn, cur = None, None
+    missing_fields = []
+    
+    try:
+        conn = pool.getconn()
+        cur = conn.cursor()
+        
+        query = """
+            SELECT nge.field_search_id, nge.field_name, nge.gps_location, nge.search_sport_type, nge.gearth_link 
+            FROM public.new_google_earth nge
+            LEFT JOIN public.nge_object obj ON nge.field_search_id = obj.field_search_id
+            WHERE obj.nge_object_id IS NULL
+        """
+        params = []
+        if zip_code:
+            query += " AND nge.postal_code = %s;"
+            params.append(zip_code)
+        else:
+            query += ";"
+            
+        cur.execute(query, tuple(params))
+        columns = [desc[0] for desc in cur.description]
+        missing_fields = [dict(zip(columns, row)) for row in cur.fetchall()]
+        
+        print(f"Self-Healing Check: Found {len(missing_fields)} records missing from nge_object.")
+        
+    except Exception as e:
+        print(f"Error checking for missing object records: {e}")
+        return
+    finally:
+        if cur: cur.close()
+        if conn: pool.putconn(conn)
+        
+    if not missing_fields:
+        print("Safety check passed: All new_google_earth records have matching nge_object entries.")
+        return
+
+    nge_object_records = []
+    all_target_class_ids = [4, 5, 9, 10, 14, 16]
+
+    for row in missing_fields:
+        field_id = row['field_search_id']
+        gps_raw = str(row['gps_location']).strip() if row['gps_location'] else ""
+        sport_type_id = row.get('search_sport_type')
+        default_sport_label = SPORT_TAGS.get(sport_type_id, "Sports Facility").title()
+
+        if "," in gps_raw and "http" not in gps_raw:
+            try:
+                parts = gps_raw.split(",")
+                lat, lon = float(parts[0]), float(parts[1])
+                gps_loc = {'latitude': lat, 'longitude': lon}
+                img_array = get_satellite_image_array(gps_loc)
+                
+                modified_locations = []
+                if img_array is not None:
+                    modified_locations = object_detection_based_modification_by_class(
+                        field_id, img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
+                    )
+                
+                if modified_locations:
+                    nge_object_records.extend(modified_locations)
+                else:
+                    nge_object_records.append({
+                        'field_search_id': field_id,
+                        'sport_name': default_sport_label,
+                        'confidence_score': 0.0,
+                        'adjusted_gps': gps_raw
+                    })
+            except Exception as ex:
+                print(f"Error running model for missing field ID {field_id}: {ex}")
+                nge_object_records.append({
+                    'field_search_id': field_id,
+                    'sport_name': default_sport_label,
+                    'confidence_score': 0.0,
+                    'adjusted_gps': gps_raw if gps_raw else "0.0,0.0"
+                })
+        else:
+            nge_object_records.append({
+                'field_search_id': field_id,
+                'sport_name': default_sport_label,
+                'confidence_score': 0.0,
+                'adjusted_gps': "0.0,0.0"
+            })
+
+    if nge_object_records:
+        save_object_data(nge_object_records)
+        print(f"Resolved and saved {len(nge_object_records)} missing nge_object records.")
+
 
 def group_incoming_fields(fields):
-    """
-    Groups incoming fields in memory based on:
-    - Distance less than 120 meters apart AND same facility name.
-    - OR identical street address AND same facility name.
-    - OR exact match of facility name AND full formatted address.
-    """
     grouped = []
     for f in fields:
         lat = f['original_gps_location']['latitude']
@@ -224,10 +308,8 @@ def group_incoming_fields(fields):
             g_addr = (g['formatted_address'] or '').strip().lower()
             g_base_name = get_base_name(g['field_name']).lower()
             
-            # Calculate physical distance
             dist = haversine(lat, lon, g_lat, g_lon)
             
-            # Match based on spatial proximity OR exact street address OR exact full address matching
             same_facility = (
                 (dist < 120.0 and base_name == g_base_name and base_name != "") or
                 (street == g_street and base_name == g_base_name and street != "" and base_name != "") or
@@ -252,7 +334,6 @@ def group_incoming_fields(fields):
             f_copy['number_of_fields'] = 1
             grouped.append(f_copy)
             
-    # Calculate the centralized centroid coordinate for each grouped facility
     for g in grouped:
         lats = [c[0] for c in g['coords_list']]
         lons = [c[1] for c in g['coords_list']]
@@ -454,10 +535,11 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
     """
     Parses OpenStreetMap elements and automatically enriches empty records
     using live coordinate-based parent lookups and reverse geocoding.
+    Guarantees search_sport_type, clean gps_location, and gearth_link generation.
     """
     fields = []
     sport_str = SPORT_TAGS.get(search_sport_type, "Field").title()
-
+    
     for el in osm_data.get("elements", []):
         lat = el.get("center", {}).get("lat", el.get("lat"))
         lon = el.get("center", {}).get("lon", el.get("lon"))
@@ -474,13 +556,12 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
         if has_native_name:
             raw_name = tags.get("name").strip()
         else:
-            # Look up surrounding named Park/School polygons in OSM
             print(f"Pitch missing name at {lat},{lon}. Searching OSM parent boundaries...")
             parent_name = get_osm_parent_name(lat, lon)
             if parent_name:
                 raw_name = f"{parent_name} ({sport_str} Field)"
             else:
-                raw_name = None  # Let the address-based naming engine handle it if nothing is found
+                raw_name = None
         
         # --- 2. RESOLVE ADDRESS & BACKUP NAME ---
         if has_native_address:
@@ -493,17 +574,17 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
             postcode_field = tags.get('addr:postcode', postal_code).strip()
             formatted_address = tags.get('addr:full', f"{street_field}, {city_field}, {state_field} {postcode_field}").strip()
             
-            # If parent lookup failed, construct name using the verified street
             if not raw_name:
                 raw_name = f"{street_field} {sport_str} Field"
         else:
-            # Fallback to Photon reverse-geocoding if no native address tags exist
             photon_name, formatted_address, street_field, city_field, state_field, postcode_field = enrich_location_via_photon(
                 lat, lon, city, state, postal_code, sport_str
             )
-            # Use Photon's guessed name only if our Overpass parent search didn't locate a better boundary
             if not raw_name:
                 raw_name = photon_name
+
+        clean_gps = f"{float(lat)},{float(lon)}"
+        clean_gearth_link = f"https://earth.google.com/web/@{clean_gps},4.1972381a,15000d"
 
         field = {
             'field_name': raw_name,
@@ -515,7 +596,7 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
             'original_gps_location': {'latitude': float(lat), 'longitude': float(lon)},
             'gplace_id': osm_native_id,
             'search_sport_type': search_sport_type,
-            'gearth_link': f"https://earth.google.com/web/@{lat},{lon},4.1972381a,15000d",
+            'gearth_link': clean_gearth_link,
             'modified_fields': []
         }
         fields.append(field)
@@ -523,7 +604,8 @@ def parse_osm_elements(osm_data, search_sport_type, city, state, postal_code):
 
 def parse_google_elements(google_data, search_sport_type, city, state, postal_code):
     """
-    Parses Google Places API elements using uniform keys matching the database format.
+    Parses Google Places API elements using uniform keys matching database schema.
+    Guarantees search_sport_type, clean gps_location, and gearth_link generation.
     """
     fields = []
     for res in google_data.get("results", []):
@@ -533,6 +615,9 @@ def parse_google_elements(google_data, search_sport_type, city, state, postal_co
         
         formatted_address = res.get("formatted_address", "")
         street_field = formatted_address.split(",")[0].strip() if formatted_address else ""
+        
+        clean_gps = f"{float(lat)},{float(lon)}"
+        clean_gearth_link = f"https://earth.google.com/web/@{clean_gps},4.1972381a,15000d"
         
         field = {
             'field_name': res.get("name", "Google Facility Location"),
@@ -544,7 +629,7 @@ def parse_google_elements(google_data, search_sport_type, city, state, postal_co
             'original_gps_location': {'latitude': float(lat), 'longitude': float(lon)},
             'gplace_id': place_id, 
             'search_sport_type': search_sport_type,
-            'gearth_link': f"https://earth.google.com/web/@{lat},{lon},4.1972381a,15000d",
+            'gearth_link': clean_gearth_link,
             'modified_fields': []
         }
         fields.append(field)
@@ -617,9 +702,12 @@ def log_processed(state_code, city, zip_code):
 
 
 def save_field_data(fields):
+    """
+    Saves or updates field records in new_google_earth.
+    Ensures search_sport_type, gps_location, and gearth_link are explicitly persisted during UPDATEs and INSERTs.
+    """
     if not fields: return
     
-    # 1. Group incoming API elements in memory first
     grouped_fields = group_incoming_fields(fields)
     target_zip = fields[0]['postal_code']
     
@@ -628,7 +716,6 @@ def save_field_data(fields):
         conn = pool.getconn()
         cur = conn.cursor()
         
-        # Fetch existing ZIP records once to matching against in memory
         cur.execute("""
             SELECT field_search_id, field_name, gps_location, street, formatted_address, number_of_fields 
             FROM public.new_google_earth 
@@ -642,8 +729,8 @@ def save_field_data(fields):
                 'field_name': row[1],
                 'gps_location': row[2],
                 'street': row[3],
-                'formatted_address': row[4],    # Key map index 4
-                'number_of_fields': row[5] or 1 # Shifted index to 5
+                'formatted_address': row[4],
+                'number_of_fields': row[5] or 1
             })
             
         inserted_count = 0
@@ -670,7 +757,6 @@ def save_field_data(fields):
                 
                 dist = haversine(lat, lon, db_lat, db_lon)
                 
-                # Added exact database address match checks
                 same_facility = (
                     (dist < 200.0 and base_name == db_base_name and base_name != "") or
                     (street == db_street and base_name == db_base_name and street != "" and base_name != "") or
@@ -681,7 +767,6 @@ def save_field_data(fields):
                     db_match = db
                     break
             
-            # --- RESTORED SQL EXECUTION SEQUENCE ---
             existing_sports = set()
             if db_match:
                 match_paren = re.search(r'\(([^)]+)\)\s*$', db_match['field_name'])
@@ -705,7 +790,8 @@ def save_field_data(fields):
                         state             = %s,
                         gps_location      = %s,
                         gearth_link       = %s,
-                        number_of_fields  = %s
+                        number_of_fields  = %s,
+                        search_sport_type = %s
                     WHERE field_search_id = %s;
                 """, (
                     final_field_name, 
@@ -717,6 +803,7 @@ def save_field_data(fields):
                     gps_str, 
                     f['gearth_link'], 
                     final_num_fields,
+                    f['search_sport_type'],
                     db_match['field_search_id']
                 ))
                 updated_count += 1
@@ -749,6 +836,7 @@ def save_field_data(fields):
     finally:
         if cur: cur.close()
         if conn: pool.putconn(conn)
+
 def object_detection_based_modification_by_class(field_id, img_array, model, gps_loc, target_classes, zoom_level=18):
     modified_records = []
     try:
@@ -783,41 +871,48 @@ def object_detection_based_modification_by_class(field_id, img_array, model, gps
 
 # RESTORED: This function was missing from your script
 def save_object_data(nge_objects):
+    """
+    Ensures every record generates an entry in nge_object with a valid
+    nge_object_id and non-null sport_name, guaranteeing full coverage for SQL joins.
+    """
     if not nge_objects: return
     conn, cur = None, None
     try:
         conn = pool.getconn()
         cur = conn.cursor()
         
-        # Pull distinct target IDs processed in this batch
         distinct_field_ids = list(set(obj['field_search_id'] for obj in nge_objects))
         
-        # 1. Clean out old model records for these fields in nge_object first
         cur.execute("""
             DELETE FROM public.nge_object 
             WHERE field_search_id = ANY(%s);
         """, (distinct_field_ids,))
         
         for obj in nge_objects:
-            # Build a helpful description showing the detection confidence
-            conf_percent = obj['confidence_score'] * 100
-            desc = f"Detected via YOLO with {conf_percent:.1f}% confidence"
+            conf = obj.get('confidence_score', 0.0)
+            conf_percent = conf * 100
             
-            # 2. Insert the metadata into nge_object using its correct schema
+            sport_name = obj.get('sport_name') if obj.get('sport_name') else 'Sports Facility'
+            
+            if conf > 0:
+                desc = f"Detected via YOLO with {conf_percent:.1f}% confidence"
+            else:
+                desc = "Baseline record generated for facility"
+            
             cur.execute("""
                 INSERT INTO public.nge_object (field_search_id, sport_name, description)
                 VALUES (%s, %s, %s);
-            """, (obj['field_search_id'], obj['sport_name'], desc))
+            """, (obj['field_search_id'], sport_name, desc))
             
-            # 3. Update the high-precision adjusted coordinates in new_google_earth
-            cur.execute("""
-                UPDATE public.new_google_earth 
-                SET gps_location = %s 
-                WHERE field_search_id = %s;
-            """, (obj['adjusted_gps'], obj['field_search_id']))
+            if obj.get('adjusted_gps') and obj['adjusted_gps'] != "0.0,0.0" and "http" not in str(obj['adjusted_gps']):
+                cur.execute("""
+                    UPDATE public.new_google_earth 
+                    SET gps_location = %s 
+                    WHERE field_search_id = %s;
+                """, (obj['adjusted_gps'], obj['field_search_id']))
             
         conn.commit()
-        print(f"🔄 Successfully updated gps_locations in new_google_earth and logged {len(nge_objects)} details in nge_object.")
+        print(f"Successfully updated database and logged {len(nge_objects)} details in nge_object.")
     except Exception as e:
         print(f"Error writing to database tables: {e}")
         if conn: conn.rollback()
@@ -880,12 +975,14 @@ if __name__ == "__main__":
     # Run spatial recentering via YOLO
     # FIXED: Direct database pull targeting only the requested ZIP code
     print(f"Retrieving database records strictly for ZIP code: {zip_code}")
+    # Retrieve database records strictly for the target ZIP code
+    print(f"Retrieving database records strictly for ZIP code: {zip_code}")
     db_fields = []
     try:
         conn = pool.getconn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT field_search_id, field_name, gps_location 
+            SELECT field_search_id, field_name, gps_location, search_sport_type, gearth_link 
             FROM public.new_google_earth 
             WHERE postal_code = %s;
         """, (zip_code,))
@@ -902,21 +999,94 @@ if __name__ == "__main__":
     nge_object = []
     all_target_class_ids = [4, 5, 9, 10, 14, 16]
     
-    for row in db_fields:
-        field_id = row['field_search_id']
-        print(f"Processing field: {row['field_name']} at {row['gps_location']}")
-        
-        lat, lon = row['gps_location'].split(",")
-        gps_loc = {'latitude': float(lat), 'longitude': float(lon)}
-        img_array = get_satellite_image_array(gps_loc)
-        
-        if img_array is not None:
-            modified_locations = object_detection_based_modification_by_class(
-                field_id, img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
-            )
-            nge_object.extend(modified_locations)
+    conn = pool.getconn()
+    cur = conn.cursor()
+
+    try:
+        for row in db_fields:
+        # Per-row exception block ensures individual field errors do not abort the loop
+            try:
+                field_id = row['field_search_id']
+                gps_raw = str(row['gps_location']).strip() if row['gps_location'] else ""
+                sport_type_id = row.get('search_sport_type')
+                default_sport_label = SPORT_TAGS.get(sport_type_id, "Sports Facility").title()
+
+            # Fix links/coordinates stored as URLs
+                if "http" in gps_raw:
+                    match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', gps_raw) or re.search(r'(-?\d+\.\d+),\s*(-?\d+\.\d+)', gps_raw)
+                    if match:
+                        clean_lat, clean_lon = match.group(1), match.group(2)
+                        clean_gps = f"{clean_lat},{clean_lon}"
+                        clean_link = f"https://earth.google.com/web/@{clean_gps},4.1972381a,15000d"
+                    
+                        cur.execute("""
+                            UPDATE public.new_google_earth 
+                            SET gps_location = %s, gearth_link = COALESCE(gearth_link, %s)
+                            WHERE field_search_id = %s;
+                        """, (clean_gps, clean_link, field_id))
+                        conn.commit()
+                        gps_raw = clean_gps
+
+                if not row.get('gearth_link') and "," in gps_raw:
+                    clean_link = f"https://earth.google.com/web/@{gps_raw},4.1972381a,15000d"
+                    cur.execute("""
+                        UPDATE public.new_google_earth 
+                        SET gearth_link = %s 
+                        WHERE field_search_id = %s;
+                    """, (clean_link, field_id))
+                    conn.commit()
+
+                # Process satellite detection
+                if "," in gps_raw and "http" not in gps_raw:
+                    print(f"Processing field ID {field_id}: '{row['field_name']}' at {gps_raw}")
+                    parts = gps_raw.split(",")
+                    lat, lon = float(parts[0]), float(parts[1])
+                    gps_loc = {'latitude': lat, 'longitude': lon}
+                    img_array = get_satellite_image_array(gps_loc)
+                
+                    modified_locations = []
+                    if img_array is not None:
+                        modified_locations = object_detection_based_modification_by_class(
+                            field_id, img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
+                        )
+                
+                    if modified_locations:
+                        nge_object.extend(modified_locations)
+                    else:
+                        print(f"ℹYOLO found 0 objects for '{row['field_name']}'. Creating default object entry...")
+                        nge_object.append({
+                            'field_search_id': field_id,
+                            'sport_name': default_sport_label,
+                            'confidence_score': 0.0,
+                            'adjusted_gps': gps_raw
+                        })
+                else:
+                    nge_object.append({
+                        'field_search_id': field_id,
+                        'sport_name': default_sport_label,
+                        'confidence_score': 0.0,
+                        'adjusted_gps': "0.0,0.0"
+                    })
+            except Exception as row_error:
+                print(f"Exception on field ID {row.get('field_search_id')}: {row_error}. Generating fallback object entry...")
+                field_id = row.get('field_search_id')
+                if field_id:
+                    sport_type_id = row.get('search_sport_type')
+                    default_sport_label = SPORT_TAGS.get(sport_type_id, "Sports Facility").title()
+                    gps_raw = str(row.get('gps_location', '')).strip()
+                    nge_object.append({
+                        'field_search_id': field_id,
+                        'sport_name': default_sport_label,
+                        'confidence_score': 0.0,
+                        'adjusted_gps': gps_raw if gps_raw else "0.0,0.0"
+                    })
+
+    finally:
+        cur.close()
+        pool.putconn(conn)
     
     if nge_object:
         save_object_data(nge_object)
-        
+    print("\nRunning database integrity check...")
+    backfill_missing_objects()
     print("Data input process completed successfully.")
