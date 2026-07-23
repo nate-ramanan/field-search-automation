@@ -1,0 +1,11 @@
+# newgoogleearth2.py — Google Earth pipeline with QLever search (Streamlit)
+# QLever search + UI (from qlever_v_6_json.py)
+streamlit>=1.30
+python-dotenv>=1.0
+requests>=2.31
+pandas>=2.0
+# Google Earth pipeline (from NewGoogleEarthNew.py)
+numpy>=1.24
+Pillow>=10.0
+psycopg2-binary>=2.9
+ultralytics>=8.0          # pulls in opencv-python + torch

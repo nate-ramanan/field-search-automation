@@ -13,12 +13,11 @@ import collections.abc
 from ultralytics import YOLO
 from io import BytesIO
 from PIL import Image
-from config_getImages import get_field_data
 from ConnectionPool import pool
 
 # Set up the config file
 KEY = 'AIzaSyC5cT2KgRuUuz51GQ71DvY8gB_VN8O8EtE' # Note: Be careful exposing your API keys publicly!
-file = r'C:\Users\adrgu\field-search-automation\config.ini'
+file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
 config = ConfigParser()
 config.read(file)
 print("Loaded Config Sections:", config.sections())                      
@@ -67,6 +66,17 @@ def get_satellite_image_array(gps_location, zoom_level=18, size=(800, 850)):
     except Exception as e:
         print(f"Error fetching satellite image: {e}")
         return None
+
+def get_fields_from_google(zip_code, sport_name, api_key):
+    url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    query = f"{sport_name} field in {zip_code}"
+    params = {"query": query, "key": api_key}
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except Exception:
+        return {"results": []}
 
 def fetch_zip_bbox_via_photon(zip_code, state_code):
     url = "https://photon.komoot.io/api/"
@@ -244,12 +254,12 @@ def group_incoming_fields(fields):
                 match['sports'] = {SPORT_TAGS.get(match['search_sport_type'], "Field").title()}
             match['sports'].add(sport_name)
             match['coords_list'].append((lat, lon))
-            match['number_of_fields'] += 1
+            # match['number_of_fields'] += 1
         else:
             f_copy = f.copy()
             f_copy['sports'] = {sport_name}
             f_copy['coords_list'] = [(lat, lon)]
-            f_copy['number_of_fields'] = 1
+            # f_copy['number_of_fields'] = 1
             grouped.append(f_copy)
             
     # Calculate the centralized centroid coordinate for each grouped facility
@@ -630,7 +640,7 @@ def save_field_data(fields):
         
         # Fetch existing ZIP records once to matching against in memory
         cur.execute("""
-            SELECT field_search_id, field_name, gps_location, street, formatted_address, number_of_fields 
+            SELECT field_search_id, field_name, gps_location, street, formatted_address 
             FROM public.new_google_earth 
             WHERE postal_code = %s;
         """, (target_zip,))
@@ -643,7 +653,7 @@ def save_field_data(fields):
                 'gps_location': row[2],
                 'street': row[3],
                 'formatted_address': row[4],    # Key map index 4
-                'number_of_fields': row[5] or 1 # Shifted index to 5
+                # 'number_of_fields': row[5] or 1 # Shifted index to 5
             })
             
         inserted_count = 0
@@ -692,7 +702,7 @@ def save_field_data(fields):
             combined_sports = existing_sports.union(f['sports'])
             sports_list_str = ", ".join(sorted(list(combined_sports)))
             final_field_name = f"{get_base_name(f['field_name'])} ({sports_list_str})"
-            final_num_fields = f['number_of_fields']
+            # final_num_fields = f['number_of_fields']
             
             if db_match:
                 cur.execute("""
@@ -705,7 +715,6 @@ def save_field_data(fields):
                         state             = %s,
                         gps_location      = %s,
                         gearth_link       = %s,
-                        number_of_fields  = %s
                     WHERE field_search_id = %s;
                 """, (
                     final_field_name, 
@@ -716,14 +725,14 @@ def save_field_data(fields):
                     f['state'], 
                     gps_str, 
                     f['gearth_link'], 
-                    final_num_fields,
+                    # final_num_fields,
                     db_match['field_search_id']
                 ))
                 updated_count += 1
             else:
                 cur.execute("""
                     INSERT INTO public.new_google_earth 
-                    (field_name, formatted_address, postal_code, street, city, state, gps_location, gearth_link, search_sport_type, gplace_id, number_of_fields)
+                    (field_name, formatted_address, postal_code, street, city, state, gps_location, gearth_link, search_sport_type, gplace_id)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, (
                     final_field_name, 
@@ -735,8 +744,8 @@ def save_field_data(fields):
                     gps_str, 
                     f['gearth_link'], 
                     f['search_sport_type'], 
-                    f['gplace_id'],
-                    final_num_fields
+                    f['gplace_id']
+                    # final_num_fields
                 ))
                 inserted_count += 1
                 
@@ -815,7 +824,7 @@ def save_object_data(nge_objects):
                 SET gps_location = %s 
                 WHERE field_search_id = %s;
             """, (obj['adjusted_gps'], obj['field_search_id']))
-            
+            final_num_fields
         conn.commit()
         print(f"🔄 Successfully updated gps_locations in new_google_earth and logged {len(nge_objects)} details in nge_object.")
     except Exception as e:
@@ -861,8 +870,7 @@ if __name__ == "__main__":
         # Fetch from Google Maps
         if source_choice in ['2', '3']:
             print(f"Querying Google Places for: '{sport_name}' in {zip_code}")
-            # --- CORRECTED: Changed get_fields_from_google to get_field_data ---
-            google_json = get_field_data(zip_code, sport_name, KEY)
+            google_json = get_fields_from_google(zip_code, sport_name, KEY)
             google_fields = parse_google_elements(google_json, sport_id, city, state_code, zip_code)
             all_fields.extend(google_fields)
     if all_fields:

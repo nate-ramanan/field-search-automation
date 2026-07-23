@@ -7,3 +7,20 @@ Type_Model/
 Detection_Modal_With_Buildings/
 *.xlsx
 *.png
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Heavy artifacts / binaries
+weights/
+new_google_data/
+*.db
+*.zip
+*.docx
+~$*.docx
+
+# Data caches
+facility_cache.db
