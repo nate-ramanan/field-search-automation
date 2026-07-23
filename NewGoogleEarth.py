@@ -307,12 +307,26 @@ def fetch_zip_codes(city, state_code):
         conn = pool.getconn()
         cur = conn.cursor()
         query = """
+<<<<<<< HEAD
         SELECT pc.postal_code FROM public.postal_code pc
         JOIN state_province sp ON sp.state_id = pc.state_id
         WHERE UPPER(pc.city) = %s AND sp.state_code = %s
           AND NOT EXISTS (
               SELECT 1 FROM maps_api_log mal
               WHERE mal.city = %s AND mal.state = %s AND mal.zip_code = pc.postal_code
+=======
+        SELECT pc.postal_code
+        FROM public.postal_code pc
+        JOIN state_province sp ON sp.state_id = pc.state_id
+        WHERE UPPER(pc.city) = %s
+          AND sp.state_code = %s
+          AND NOT EXISTS (
+              SELECT 1
+              FROM maps_api_log mal
+              WHERE mal.city = %s
+                AND mal.state = %s
+                AND mal.zip_code = pc.postal_code
+>>>>>>> b8f9beb550708ef0a931fbe050aaa8db686b3d19
           )
         """
         cur.execute(query, (city.upper().strip(), state_code, city.upper().strip(), state_code))
@@ -345,6 +359,7 @@ def delete_duplicates():
     try:
         conn = pool.getconn()
         cur = conn.cursor()
+<<<<<<< HEAD
         delete_query = """
         WITH ranked AS (
             SELECT field_search_id, ROW_NUMBER() OVER (
@@ -358,10 +373,43 @@ def delete_duplicates():
             RETURNING field_search_id
         )
         DELETE FROM public.new_google_earth WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids);
+=======
+
+        print("Deleting duplicates by (gplace_id, field_name, gps_location)")
+        delete_query = """
+        WITH ranked AS (
+    SELECT
+        field_search_id,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                COALESCE(gplace_id, ''),
+                COALESCE(field_name, ''),
+                COALESCE(gps_location, '')
+            ORDER BY field_search_id
+        ) AS rn
+    FROM public.new_google_earth
+),
+duplicate_ids AS (
+    SELECT field_search_id FROM ranked WHERE rn > 1
+),
+deleted_objects AS (
+    DELETE FROM public.nge_object
+    WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids)
+    RETURNING field_search_id
+)
+DELETE FROM public.new_google_earth
+WHERE field_search_id IN (SELECT field_search_id FROM duplicate_ids);
+>>>>>>> b8f9beb550708ef0a931fbe050aaa8db686b3d19
         """
         cur.execute(delete_query)
+        rows_deleted = cur.rowcount
         conn.commit()
+<<<<<<< HEAD
         print(f"Cleaned up duplicate rows successfully.")
+=======
+        print(f"Deleted {rows_deleted} duplicate rows.")
+
+>>>>>>> b8f9beb550708ef0a931fbe050aaa8db686b3d19
     except Exception as error:
         print("Error during database duplicate cleaning:", error)
     finally:
@@ -392,6 +440,7 @@ if __name__ == "__main__":
                 continue
                 
             all_fields = []
+<<<<<<< HEAD
             
             # Step 2: Loop through each sport category and fetch records via Overpass
             for sport_id, sport_name in SPORT_TAGS.items():
@@ -400,6 +449,51 @@ if __name__ == "__main__":
                 fields_from_search = parse_osm_elements(osm_json_response, sport_id, city, state_code, zip_code)
                 
                 for field in fields_from_search:
+=======
+            schools_data = fetch_schools(zip_code=zip_code)
+            schools_locations = []
+            for school in schools_data:
+                gps = school[3]
+                if not gps or ',' not in gps:
+                    continue  # skip bad / missing GPS
+                lat, lon = gps.split(",")
+                try:
+                    lat_f, lon_f = float(lat), float(lon)
+                except ValueError:
+                    continue
+
+                school_dict = {
+                    'field_name': school[0],
+                    'formatted_address': None,
+                    'postal_code': None,
+                    'street': None,
+                    'city': school[5],
+                    'state': school[1],
+                    'original_gps_location': {'latitude': lat_f, 'longitude': lon_f},
+                    'gplace_id': None,
+                    'search_sport_type': 100,
+                    'gearth_link': school[11],
+                    'modified_fields': []
+                }
+                schools_locations.append(school_dict)
+
+            seen_gplace_ids = set()
+                
+            for sport, sport_type_id in sport_types.items():
+                print(f"Fetching fields for {sport} in {city}, {state_code} for zip code {zip_code}")
+                
+                query = f"sports fields and facilities for {sport} in {zip_code}, {state_code}"
+                xml_data = get_fields(query)
+                fields_from_search = parse_fields(xml_data, sport_type_id)
+                
+                for field in fields_from_search:
+                    gplace_id = field.get('gplace_id')
+                    if gplace_id and gplace_id in seen_gplace_ids:
+                        print(f"Skipping duplicate facility: {field['field_name']}")
+                        continue
+                    if gplace_id:
+                        seen_gplace_ids.add(gplace_id)
+>>>>>>> b8f9beb550708ef0a931fbe050aaa8db686b3d19
                     all_fields.append(field)
 
             if all_fields:
@@ -425,4 +519,8 @@ if __name__ == "__main__":
             nge_object.extend(modified_locations)
             
     save_object_data(nge_object)
+<<<<<<< HEAD
     print("Data input process completed utilizing OpenStreetMap data engines successfully.")
+=======
+    print("Data input process completed")
+>>>>>>> b8f9beb550708ef0a931fbe050aaa8db686b3d19

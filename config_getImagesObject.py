@@ -35,6 +35,19 @@ def get_field_data(pool):
                 SELECT nge.search_sport_type as searched_sport_id, nge.field_name, nge.gearth_link as field_map, nge.field_search_id as field_id, 'orig' as sport_name, null as nge_object_id
                 FROM public.new_google_earth nge
                 ) AS combined
+                SELECT
+                    nge.search_sport_type,
+                    nge.field_name,
+                    obj.image_url as field_map,
+                    nge.field_search_id as field_id,
+                    obj.sport_name,
+                    obj.nge_object_id
+                FROM public.new_google_earth nge
+                INNER JOIN public.nge_object obj
+                    ON obj.field_search_id = nge.field_search_id
+                WHERE obj.nge_object_id IS NOT NULL
+                  AND obj.sport_name IN ('Baseball', 'Basketball', 'Golf', 'Soccer', 'Stadium', 'Tennis')
+                ORDER BY nge.field_search_id, obj.nge_object_id
                 LIMIT %s OFFSET %s
                 """, (batch_size, offset))
 

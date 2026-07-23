@@ -119,6 +119,77 @@ def _safe_object_id_str(nge_object_id):
 
 def ProcessImage(current_map, small_img_paths, current_field_id, current_name, large_img_paths, df_error, sport_name, nge_object_id):
     if not current_map or pd.isna(current_map):
+        try:
+            return str(int(float(nge_object_id)))
+        except (TypeError, ValueError):
+            return None
+
+def ProcessImage(current_map,small_img_paths,current_field_id,current_name,large_img_paths,df_error,sport_name, nge_object_id):
+    if current_map:
+
+        try:
+            lat, lon = gpsLocation(current_map)
+            obj_id_str = _safe_object_id_str(nge_object_id)
+            if obj_id_str is None:
+                print(f"Skipping field_id {current_field_id} because nge_object_id is missing or invalid.")
+                return df_error
+            if sport_name not in ALLOWED_SPORT_NAMES:
+                print(f"Skipping unsupported sport label for field_id {current_field_id}: {sport_name}")
+                return df_error
+            save_path_small = small_img_paths + '/' + obj_id_str + '_' + str(current_field_id) + '_' + sport_name + '.png'
+            # Use the newly centered GPS location for the next image grabs
+            if ('Basketball' in sport_name) or ('Tennis' in sport_name):
+                image_url_small = getImage(
+                    lat,
+                    lon,
+                    KEY,
+                    19,
+                    SMALL_IMG_WIDTH,
+                    SMALL_IMG_HEIGHT
+                )
+            elif ('Baseball' in sport_name):
+                image_url_small = getImage(
+                    lat,
+                    lon,
+                    KEY,
+                    18,
+                    SMALL_IMG_WIDTH,
+                    SMALL_IMG_HEIGHT
+                )
+            else:
+                image_url_small = getImage(
+                    lat,
+                    lon,
+                    KEY,
+                    19,
+                    SMALL_IMG_WIDTH,
+                    SMALL_IMG_HEIGHT
+                )
+            saveImg(image_url_small, save_path_small, 30)
+
+            image_url_large = getImage(
+                lat,
+                lon,
+                KEY,
+                18,
+                LARGE_IMG_WIDTH,
+                LARGE_IMG_HEIGHT
+            )
+            save_path_large = large_img_paths + '/' + obj_id_str + '_' + str(current_field_id) + '_' + sport_name + '.png'
+
+            saveImg(image_url_large, save_path_large, 30)
+        except Exception as error:
+            print(f"Error processing field_id {current_field_id}: {error}")
+            new_row_data = {
+                'field_name': current_name,
+                'field_map': current_map,
+                'field_id': current_field_id,
+                'nge_object_id': nge_object_id
+            }
+            new_row_df = pd.DataFrame([new_row_data])
+            df_error = pd.concat([df_error, new_row_df], ignore_index=True)
+    else:
+        # There was no map so add to error sheet
         print(f"No map available for field_id: {current_field_id}")
         new_row_df = pd.DataFrame([{'field_name': current_name, 'field_map': current_map, 'field_id': current_field_id, 'nge_object_id': nge_object_id}])
         return pd.concat([df_error, new_row_df], ignore_index=True)
