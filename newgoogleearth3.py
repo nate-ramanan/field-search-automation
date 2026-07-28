@@ -68,7 +68,10 @@ except Exception as _e:  # pragma: no cover - environment dependent
 # =============================================================================
 # GOOGLE EARTH CONSTANTS  (copied verbatim from NewGoogleEarthNew.py)
 # =============================================================================
-KEY = 'AIzaSyC5cT2KgRuUuz51GQ71DvY8gB_VN8O8EtE'  # Note: Be careful exposing your API keys publicly!
+# Google Maps API key — loaded from the environment, never hardcoded.
+# Only needed when the satellite source is set to "Google Static Maps"; the
+# default Esri provider needs no key. Set GOOGLE_MAPS_API_KEY in your env / .env.
+KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
 
 display_names = {
@@ -106,6 +109,26 @@ def build_gearth_link(lat: float, lon: float) -> str:
     """
     return (f"https://earth.google.com/web/@{lat},{lon},"
             f"{GEARTH_GROUND_ELEVATION_M}a,{GEARTH_CAMERA_ALTITUDE_M}d")
+
+
+# =============================================================================
+# SATELLITE IMAGERY PROVIDER  (free Esri World Imagery vs paid Google)
+# =============================================================================
+# "esri"   -> Esri World Imagery XYZ tiles: FREE, no API key, sub-metre in US,
+#             served at the same zoom 18 so YOLO's pixel->GPS offsets stay valid.
+# "google" -> Google Static Maps: paid, requires KEY (original behaviour).
+SATELLITE_PROVIDER_DEFAULT = "esri"
+_ACTIVE_SATELLITE_PROVIDER = SATELLITE_PROVIDER_DEFAULT
+_ESRI_TILE_URL = ("https://server.arcgisonline.com/ArcGIS/rest/services/"
+                  "World_Imagery/MapServer/tile/{z}/{y}/{x}")
+_TILE_SIZE = 256
+
+
+def set_satellite_provider(provider: str) -> None:
+    """Set the active satellite source ('esri' or 'google') process-wide."""
+    global _ACTIVE_SATELLITE_PROVIDER
+    _ACTIVE_SATELLITE_PROVIDER = provider if provider in ("esri", "google") \
+        else SATELLITE_PROVIDER_DEFAULT
 
 # Reasons recorded in nge_object.description when a field cannot be recentered by
 # YOLO. Every new_google_earth row must be represented in nge_object; when YOLO
@@ -158,9 +181,12 @@ HEADERS = {
 
 _log_lock = Lock()
 
-# Cap concurrent SPARQL POSTs to the public Qlever endpoint across all
-# worker threads. The public instance silently throttles otherwise. Cap at 3.
-_QLEVER_SEM = Semaphore(3)
+# Cap concurrent SPARQL POSTs to the public Qlever endpoint across all worker
+# threads. The public instance throttles / rate-limits aggressively, so keep
+# this at 1 (fully serial). _QLEVER_MIN_INTERVAL spaces consecutive POSTs.
+_QLEVER_SEM = Semaphore(1)
+_QLEVER_MIN_INTERVAL = 1.0  # seconds between consecutive Qlever POSTs
+_qlever_last_call = [0.0]   # mutable holder guarded by _QLEVER_SEM
 
 CACHE_DB_PATH = "facility_cache.db"
 CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -583,8 +609,13 @@ def query_qlever(name, query, status_callback, use_cache=True, timeout=90):
         with _log_lock:
             status_callback(f"  [{name}] querying Qlever...")
         with _QLEVER_SEM:
+            # Throttle: keep at least _QLEVER_MIN_INTERVAL between POSTs.
+            wait = _QLEVER_MIN_INTERVAL - (time.time() - _qlever_last_call[0])
+            if wait > 0:
+                time.sleep(wait)
             resp = requests.post(QLEVER_ENDPOINT, data={"query": query},
                                   headers=headers, timeout=timeout)
+            _qlever_last_call[0] = time.time()
         resp.raise_for_status()
         payload = resp.json()
         rows = payload.get("results", {}).get("bindings", [])
@@ -618,7 +649,7 @@ def fetch_overpass(bbox, sport_config, overpass_url, status_callback,
     queries = build_qlever_queries(bbox, sport_config, sport_choice)
     results = []
     raw_payloads = {}
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    with ThreadPoolExecutor(max_workers=1) as ex:
         futures = {
             ex.submit(query_qlever, qname, qtext, status_callback, use_cache):
                 (qname, kind)
@@ -1378,9 +1409,79 @@ def getImage(lat, lon, key, zoom, width, height):
     return 'Error'
 
 
-def get_satellite_image_array(gps_location, zoom_level=GEARTH_ZOOM_LEVEL, size=(800, 850)):
+def _latlon_to_global_px(lat, lon, zoom):
+    """Web-Mercator lat/lon -> global pixel coords at a given zoom (256px tiles)."""
+    n = (2 ** zoom) * _TILE_SIZE
+    x = (lon + 180.0) / 360.0 * n
+    lat_rad = math.radians(lat)
+    y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n
+    return x, y
+
+
+def _fetch_esri_image_array(lat, lon, zoom, width, height):
+    """Fetch a Google-Static-Maps-equivalent image from FREE Esri World Imagery.
+
+    Downloads the zoom-`zoom` XYZ tiles covering a `width`x`height` window
+    centred on (lat, lon) and stitches them into one RGB array. Same zoom as the
+    Google path, so the ground scale (metres/pixel) — and therefore YOLO's
+    pixel->GPS offset factors — are identical.
+    """
+    cx, cy = _latlon_to_global_px(lat, lon, zoom)
+    left = cx - width / 2.0
+    top = cy - height / 2.0
+
+    tx0, tx1 = int(left // _TILE_SIZE), int((left + width - 1) // _TILE_SIZE)
+    ty0, ty1 = int(top // _TILE_SIZE), int((top + height - 1) // _TILE_SIZE)
+    max_tile = 2 ** zoom - 1
+
+    def _get_tile(tx, ty):
+        if tx < 0 or ty < 0 or tx > max_tile or ty > max_tile:
+            return tx, ty, None
+        url = _ESRI_TILE_URL.format(z=zoom, y=ty, x=tx)
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=30)
+            resp.raise_for_status()
+            return tx, ty, Image.open(BytesIO(resp.content)).convert("RGB")
+        except Exception:
+            return tx, ty, None
+
+    coords = [(tx, ty) for tx in range(tx0, tx1 + 1) for ty in range(ty0, ty1 + 1)]
+    canvas = Image.new("RGB",
+                       ((tx1 - tx0 + 1) * _TILE_SIZE, (ty1 - ty0 + 1) * _TILE_SIZE))
+    got_any = False
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for tx, ty, tile in ex.map(lambda c: _get_tile(*c), coords):
+            if tile is None:
+                continue
+            got_any = True
+            canvas.paste(tile, ((tx - tx0) * _TILE_SIZE, (ty - ty0) * _TILE_SIZE))
+    if not got_any:
+        return None
+
+    crop_x = int(round(left - tx0 * _TILE_SIZE))
+    crop_y = int(round(top - ty0 * _TILE_SIZE))
+    cropped = canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
+    return np.array(cropped)
+
+
+def get_satellite_image_array(gps_location, zoom_level=GEARTH_ZOOM_LEVEL,
+                              size=(800, 850), provider=None):
+    """Return an RGB satellite image array centred on the given GPS point.
+
+    Provider defaults to the process-wide selection (Esri = free, Google = paid).
+    Return shape/scale is identical for both so YOLO behaviour is unchanged.
+    """
     lat = gps_location['latitude']
     lon = gps_location['longitude']
+    provider = provider or _ACTIVE_SATELLITE_PROVIDER
+
+    if provider == "esri":
+        try:
+            return _fetch_esri_image_array(lat, lon, zoom_level, size[0], size[1])
+        except Exception as e:
+            print(f"Error fetching Esri satellite image: {e}")
+            return None
+
     image_url = getImage(lat, lon, KEY, zoom_level, size[0], size[1])
     if image_url == 'Error':
         return None
@@ -1653,10 +1754,48 @@ def save_field_data(fields):
             pool.putconn(conn)
 
 
-def object_detection_based_modification_by_class(field_id, img_array, model, gps_loc, target_classes, zoom_level=18):
+# Annotated YOLO detection images are written here so you can eyeball what the
+# model saw. Toggle from the sidebar (set_detection_image_saving).
+DETECTION_IMAGE_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "yolo_detection_results")
+SAVE_DETECTION_IMAGES_DEFAULT = True
+_SAVE_DETECTION_IMAGES = SAVE_DETECTION_IMAGES_DEFAULT
+
+
+def set_detection_image_saving(enabled: bool) -> None:
+    """Enable/disable writing annotated YOLO images to DETECTION_IMAGE_DIR."""
+    global _SAVE_DETECTION_IMAGES
+    _SAVE_DETECTION_IMAGES = bool(enabled)
+
+
+def _save_detection_image(results, field_id, field_label: str = "") -> Optional[str]:
+    """Save the YOLO-annotated image (bounding boxes drawn) to the local disk.
+
+    Uses ultralytics' results[0].plot() (returns a BGR array with boxes) and
+    writes it as a JPG named "<field_id>_<field_label>.jpg". Saved even when
+    there are 0 detections, so a blank-box image documents WHY YOLO found none.
+    Returns the written path, or None on failure.
+    """
+    try:
+        annotated = results[0].plot()          # BGR ndarray with boxes drawn
+        rgb = annotated[:, :, ::-1]            # BGR -> RGB for PIL
+        os.makedirs(DETECTION_IMAGE_DIR, exist_ok=True)
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", (field_label or "").strip())[:80]
+        fname = f"{field_id}_{safe}.jpg" if safe else f"{field_id}.jpg"
+        path = os.path.join(DETECTION_IMAGE_DIR, fname)
+        Image.fromarray(rgb).save(path, quality=90)
+        return path
+    except Exception as e:
+        print(f"Error saving detection image for field {field_id}: {e}")
+        return None
+
+
+def object_detection_based_modification_by_class(field_id, img_array, model, gps_loc, target_classes, zoom_level=18, field_label=""):
     modified_records = []
     try:
         results = model.predict(img_array, verbose=False)
+        if _SAVE_DETECTION_IMAGES:
+            _save_detection_image(results, field_id, field_label)
         for res in results:
             for box in res.boxes:
                 class_id = int(box.cls)
@@ -1745,9 +1884,12 @@ def _entry_to_fields(entry: dict, sport_tag: int, city: str, state: str,
                      city_zip: str) -> List[dict]:
     """Convert one QLever facility into NewGoogleEarthNew `field` dict(s).
 
-    Emits one field per child pitch (so grouping/number_of_fields matches the
-    original per-pitch behaviour), or a single facility-centroid record when a
-    facility has no attached pitches.
+    Emits one field per child pitch/court so every individual court survives to
+    the database (matching the qlever Excel's per-court granularity). When a
+    facility has multiple courts, each court gets a distinct name
+    ("<Facility> <Sport> <n>") placed OUTSIDE any parentheses so
+    get_base_name / group_incoming_fields treat them as separate records instead
+    of collapsing them into one. Single-court facilities keep their plain name.
     """
     address = entry.get("address", "") or f"{city}, {state} {city_zip}".strip()
     street = address.split(",")[0].strip() if address else ""
@@ -1760,10 +1902,17 @@ def _entry_to_fields(entry: dict, sport_tag: int, city: str, state: str,
     if not coords:
         coords = [(entry["lat"], entry["lon"])]
 
+    sport_label = SPORT_TAGS.get(sport_tag, "field").title()
+    multi = len(coords) > 1
+    base_name = entry["name"]
+
     fields = []
-    for lat, lon in coords:
+    for i, (lat, lon) in enumerate(coords, 1):
+        # Distinct per-court name keeps group_incoming_fields from merging the
+        # courts of one facility into a single record.
+        field_name = f"{base_name} {sport_label} {i}" if multi else base_name
         fields.append({
-            'field_name': entry["name"],
+            'field_name': field_name,
             'formatted_address': address,
             'postal_code': city_zip,
             'street': street,
@@ -1911,7 +2060,8 @@ def run_yolo_recentering_stage(zip_code: str, model,
         nge_object.extend(
             object_detection_based_modification_by_class(
                 row['field_search_id'], img_array, model, gps_loc,
-                ALL_TARGET_CLASS_IDS, zoom_level=18))
+                ALL_TARGET_CLASS_IDS, zoom_level=18,
+                field_label=row.get('field_name', '')))
 
     if nge_object:
         save_object_data(nge_object)
@@ -2061,7 +2211,8 @@ def backfill_missing_objects(zip_code: Optional[str] = None,
             continue
         dets = object_detection_based_modification_by_class(
             row["field_search_id"], img_array, model, gps_loc,
-            ALL_TARGET_CLASS_IDS, zoom_level=18)
+            ALL_TARGET_CLASS_IDS, zoom_level=18,
+            field_label=row.get("field_name", ""))
         if dets:
             real_detections.extend(dets)
         else:
@@ -2148,11 +2299,34 @@ def main() -> None:
         )
         max_workers = st.slider(
             "Parallel workers",
-            min_value=1, max_value=16, value=3,
+            min_value=1, max_value=8, value=1,
             help=("Threads running per-sport search jobs concurrently. The "
-                  "public QLever endpoint throttles aggressively — keep ≤3."),
+                  "public QLever endpoint rate-limits aggressively — QLever "
+                  "POSTs are serialized globally regardless, so keep this at 1 "
+                  "(raise only if you stop seeing throttling)."),
         )
         use_cache = st.checkbox("Use response cache", value=True)
+
+        st.divider()
+        st.caption("🛰️ Satellite source (for YOLO)")
+        sat_choice = st.radio(
+            "Satellite imagery source",
+            options=["Esri World Imagery (free)", "Google Static Maps (paid)"],
+            index=0,
+            label_visibility="collapsed",
+            help=("Esri = free, no API key, sub-metre in the US, zoom 18 — the "
+                  "YOLO model was trained on Google imagery so Esri may miss a "
+                  "few; Google matches training exactly but bills per image."),
+        )
+        set_satellite_provider("esri" if sat_choice.startswith("Esri") else "google")
+
+        save_det_imgs = st.checkbox(
+            "Save YOLO detection images", value=SAVE_DETECTION_IMAGES_DEFAULT,
+            help=("Write each satellite image with YOLO boxes drawn to "
+                  "yolo_detection_results/ so you can verify detections."))
+        set_detection_image_saving(save_det_imgs)
+        if save_det_imgs:
+            st.caption(f"🖼️ Images → `{DETECTION_IMAGE_DIR}`")
 
         count, size = cache_stats()
         if count > 0:
