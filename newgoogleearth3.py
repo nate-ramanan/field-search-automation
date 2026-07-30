@@ -1,28 +1,3 @@
-"""newgoogleearth2.py — Google Earth facility pipeline with QLever search.
-
-This is a Streamlit re-packaging of ``NewGoogleEarthNew.py``. The ONLY thing
-that changes versus the original is *how search results are obtained* and *how
-the app is driven*:
-
-* Search: the Overpass + Google Places search of ``NewGoogleEarthNew.py`` is
-  fully removed and replaced with the QLever SPARQL (+ NCES CCD schools) search
-  ported verbatim from ``qlever_v_6_json.py``.
-* UI: the command-line ``input()`` prompts are removed. The app runs directly
-  with ``streamlit run newgoogleearth2.py`` and mirrors the QLever frontend.
-* Flow: instead of inserting straight into Postgres, the app shows a preview of
-  every record that *would* be inserted and waits for explicit confirmation.
-
-Everything after search — grouping, database insertion (``save_field_data``),
-YOLO satellite recentering (``save_object_data``), the ``new_google_earth`` /
-``nge_object`` schema, filenames, and Google Earth links — is copied byte-for-
-byte from ``NewGoogleEarthNew.py`` and behaves identically. ``NewGoogleEarthNew.py``
-itself is left untouched.
-
-Run:
-    pip install -r requirements.txt
-    streamlit run newgoogleearth2.py
-"""
-
 from __future__ import annotations
 
 import os
