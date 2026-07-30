@@ -54,19 +54,72 @@ def getImage(lat, lon, key, zoom, width, height):
         return f"https://maps.googleapis.com/maps/api/staticmap?key={key}&center={lat},{lon}&zoom={zoom}&size={width}x{height}&maptype=satellite"
     return 'Error'
 
-def get_satellite_image_array(gps_location, zoom_level=18, size=(800, 850)):
-    lat = gps_location['latitude']
-    lon = gps_location['longitude']
-    image_url = getImage(lat, lon, KEY, zoom_level, size[0], size[1])
-    if image_url == 'Error': return None
+import io
+import time
+import requests
+import numpy as np
+from PIL import Image, UnidentifiedImageError
+
+def get_satellite_image_array(gps_loc, max_retries=3):
+    """
+    Fetches satellite imagery with coordinate validation, retry logic, 
+    header validation, and safe PIL decoding to prevent pipeline dropouts.
+    """
+    # 1. Sanitize and Validate GPS Input
     try:
-        response = requests.get(image_url, headers={"User-Agent": "SportsFacilityFinder/1.0"})
-        response.raise_for_status()
-        img = Image.open(BytesIO(response.content))
-        return np.array(img.convert('RGB'))
-    except Exception as e:
-        print(f"Error fetching satellite image: {e}")
+        lat = float(gps_loc['latitude'])
+        lon = float(gps_loc['longitude'])
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            print(f"Out-of-bounds GPS coordinates: ({lat}, {lon})")
+            return None
+    except (KeyError, TypeError, ValueError) as err:
+        print(f"Invalid GPS dictionary/format {gps_loc}: {err}")
         return None
+
+    # Replace with your actual API endpoint & key
+    url = f"https://maps.googleapis.com/maps/api/staticmap?center={lat},{lon}&zoom=18&size=640x640&maptype=satellite&key={KEY}"
+    headers = {"User-Agent": "SportsFacilityFinder/1.0"}
+
+    # 2. Retry Loop with Exponential Delay
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Explicit timeout prevents hanging requests
+            response = requests.get(url, headers=headers, timeout=15)
+
+            # Handle Rate Limiting (HTTP 429 or 503)
+            if response.status_code in (429, 503):
+                delay = attempt * 2
+                print(f"Server busy ({response.status_code}). Retrying in {delay}s (Attempt {attempt}/{max_retries})...")
+                time.sleep(delay)
+                continue
+
+            response.raise_for_status()
+
+            # 3. Verify Response Content Type Before Decoding
+            content_type = response.headers.get("Content-Type", "").lower()
+            if "image" not in content_type:
+                print(f"Received non-image payload ({content_type}): {response.text[:120]}")
+                return None
+
+            # 4. Safe Image Decoding
+            image_bytes = io.BytesIO(response.content)
+            img = Image.open(image_bytes).convert("RGB")
+            return np.array(img)
+
+        except requests.exceptions.Timeout:
+            print(f"Request timed out for ({lat}, {lon}) [Attempt {attempt}/{max_retries}]")
+            time.sleep(1)
+
+        except requests.exceptions.RequestException as req_err:
+            print(f"Network error for ({lat}, {lon}): {req_err}")
+            time.sleep(1)
+
+        except (UnidentifiedImageError, OSError) as img_err:
+            print(f"Failed to decode image payload into NumPy array: {img_err}")
+            return None
+
+    print(f"Failed to fetch image for ({lat}, {lon}) after {max_retries} attempts.")
+    return None
 
 def fetch_zip_bbox_via_photon(zip_code, state_code):
     url = "https://photon.komoot.io/api/"
@@ -238,6 +291,57 @@ def backfill_missing_objects(zip_code=None):
     if not missing_fields:
         print("Safety check passed: All new_google_earth records have matching nge_object entries.")
         return
+
+    nge_object_records = []
+    all_target_class_ids = [4, 5, 9, 10, 14, 16]
+
+    for row in missing_fields:
+        field_id = row['field_search_id']
+        gps_raw = str(row['gps_location']).strip() if row.get('gps_location') else ""
+        sport_type_id = row.get('search_sport_type')
+        default_sport_label = SPORT_TAGS.get(sport_type_id, "Sports Facility").title()
+
+        if "," in gps_raw and "http" not in gps_raw:
+            try:
+                parts = gps_raw.split(",")
+                lat, lon = float(parts[0]), float(parts[1])
+                gps_loc = {'latitude': lat, 'longitude': lon}
+                img_array = get_satellite_image_array(gps_loc)
+                
+                modified_locations = []
+                if img_array is not None:
+                    modified_locations = object_detection_based_modification_by_class(
+                        field_id, img_array, obd_model, gps_loc, all_target_class_ids, zoom_level=18
+                    )
+                
+                if modified_locations:
+                    nge_object_records.extend(modified_locations)
+                else:
+                    nge_object_records.append({
+                        'field_search_id': field_id,
+                        'sport_name': default_sport_label,
+                        'confidence_score': 0.0,
+                        'adjusted_gps': gps_raw
+                    })
+            except Exception as ex:
+                print(f"Error running model for missing field ID {field_id}: {ex}")
+                nge_object_records.append({
+                    'field_search_id': field_id,
+                    'sport_name': default_sport_label,
+                    'confidence_score': 0.0,
+                    'adjusted_gps': gps_raw if gps_raw else "0.0,0.0"
+                })
+        else:
+            nge_object_records.append({
+                'field_search_id': field_id,
+                'sport_name': default_sport_label,
+                'confidence_score': 0.0,
+                'adjusted_gps': "0.0,0.0"
+            })
+
+    if nge_object_records:
+        save_object_data(nge_object_records)
+        print(f"Resolved and saved {len(nge_object_records)} missing nge_object records.")
 
     nge_object_records = []
     all_target_class_ids = [4, 5, 9, 10, 14, 16]
@@ -869,7 +973,6 @@ def object_detection_based_modification_by_class(field_id, img_array, model, gps
     return modified_records
 
 
-# RESTORED: This function was missing from your script
 def save_object_data(nge_objects):
     """
     Ensures every record generates an entry in nge_object with a valid
@@ -919,6 +1022,23 @@ def save_object_data(nge_objects):
     finally:
         if cur: cur.close()
         if conn: pool.putconn(conn)
+def save_single_object_data(cur, field_search_id, sport_name, conf, status="DETECTED"):
+    """
+    Saves a single record to public.nge_object with an explicit description
+    based on the processing status.
+    """
+    if status == "FETCH_ERROR":
+        desc = "Image fetch failed: Satellite API error or timeout"
+    elif status == "ZERO_DETECTIONS":
+        desc = "No fields detected by YOLO (0% confidence)"
+    else:
+        conf_percent = conf * 100 if conf <= 1.0 else conf
+        desc = f"Detected via YOLO with {conf_percent:.1f}% confidence"
+
+    cur.execute("""
+        INSERT INTO public.nge_object (field_search_id, sport_name, description)
+        VALUES (%s, %s, %s);
+    """, (field_search_id, sport_name, desc))
 # ---------------------------------------------------------
 # MAIN EXECUTION ENTRYPOINT
 # ---------------------------------------------------------
