@@ -621,7 +621,9 @@ def save_field_data(fields):
         cur  = conn.cursor()
         cur.execute("""
             SELECT field_search_id, field_name, gps_location,
-                   street, formatted_address, gplace_id
+                   street, formatted_address, gplace_id,
+                   baseball_fields, basketball_courts, soccer_fields,
+                   tennis_courts, volleyball_courts, total_fields
             FROM public.new_google_earth
             WHERE postal_code = %s;
         """, (target_zip,))
@@ -635,6 +637,13 @@ def save_field_data(fields):
                 'street':            row[3],
                 'formatted_address': row[4],
                 'gplace_id':         row[5],
+                # Existing count columns — used to merge on re-runs
+                'baseball_fields':   row[6] or 0,
+                'basketball_courts': row[7] or 0,
+                'soccer_fields':     row[8] or 0,
+                'tennis_courts':     row[9] or 0,
+                'volleyball_courts': row[10] or 0,
+                'total_fields':      row[11] or 0,
             }
             db_records.append(rec)
             if row[5]:
@@ -697,7 +706,7 @@ def save_field_data(fields):
                     if name_match or addr_match or street_match:
                         db_match = db; break
 
-            # Build combined sport IDs (DB existing + incoming batch)
+            # Build combined sport IDs for the field name label
             existing_sport_labels = extract_sports_from_name(
                 db_match['field_name'] if db_match else ""
             )
@@ -709,13 +718,32 @@ def save_field_data(fields):
             clean_base       = clean_raw_name(f['field_name'])
             final_field_name = f"{clean_base} ({sports_label})" if clean_base else f"Facility ({sports_label})"
 
-            # Counts from combined_sport_ids — never resets on re-runs
-            baseball_cnt     = 1 if 8  in combined_sport_ids else 0
-            basketball_cnt   = 1 if 9  in combined_sport_ids else 0
-            soccer_cnt       = 1 if 79 in combined_sport_ids else 0
-            tennis_cnt       = 1 if 87 in combined_sport_ids else 0
-            volleyball_cnt   = 1 if 90 in combined_sport_ids else 0
-            total_cnt        = baseball_cnt + basketball_cnt + soccer_cnt + tennis_cnt + volleyball_cnt or 1
+            # Count ACTUAL court occurrences from sport_counts dict
+            # sport_counts tracks how many times each sport appeared
+            # in the raw API results for this facility — e.g. 6 tennis
+            # court ways all tagged tennis = tennis_courts=6, not 1
+            incoming_counts  = dict(f.get('sport_counts', {}))
+
+            # Merge with existing DB counts on re-runs
+            # Take the MAX of existing vs incoming to never lose counts
+            if db_match:
+                try:
+                    db_baseball   = int(db_match.get('baseball_fields',   0) or 0)
+                    db_basketball = int(db_match.get('basketball_courts', 0) or 0)
+                    db_soccer     = int(db_match.get('soccer_fields',     0) or 0)
+                    db_tennis     = int(db_match.get('tennis_courts',     0) or 0)
+                    db_volleyball = int(db_match.get('volleyball_courts', 0) or 0)
+                except (ValueError, TypeError):
+                    db_baseball = db_basketball = db_soccer = db_tennis = db_volleyball = 0
+            else:
+                db_baseball = db_basketball = db_soccer = db_tennis = db_volleyball = 0
+
+            baseball_cnt   = max(incoming_counts.get(8,  0), db_baseball)
+            basketball_cnt = max(incoming_counts.get(9,  0), db_basketball)
+            soccer_cnt     = max(incoming_counts.get(79, 0), db_soccer)
+            tennis_cnt     = max(incoming_counts.get(87, 0), db_tennis)
+            volleyball_cnt = max(incoming_counts.get(90, 0), db_volleyball)
+            total_cnt      = baseball_cnt + basketball_cnt + soccer_cnt + tennis_cnt + volleyball_cnt or 1
 
             city_to_store  = normalize_city(f['city'])
             state_to_store = normalize_state(f['state'])
@@ -947,17 +975,43 @@ def group_by_gps_only(fields):
     """
     Clusters raw API fields purely by GPS distance (80m).
     No name, address or ZIP matching whatsoever.
+
+    FIX: groups by unique GPS location (gplace_id) first,
+    then counts ALL sport occurrences per gplace_id including
+    duplicates from multiple sport queries.
+    This ensures 2 basketball courts at the same location
+    count as 2 even if OSM returns the same way ID twice.
     """
+    # Step 1: Group by gplace_id to count sport occurrences per unique location
+    # A single OSM way can appear in multiple sport queries
+    gplace_sports = {}   # gplace_id -> list of sport_types
+    gplace_record = {}   # gplace_id -> representative field dict
+
+    for f in fields:
+        gid = f.get('gplace_id', '')
+        if gid not in gplace_sports:
+            gplace_sports[gid] = []
+            gplace_record[gid] = f
+        gplace_sports[gid].append(f['search_sport_type'])
+
+    # Step 2: Build unique location list with aggregated sport counts
+    unique_fields = []
+    for gid, f in gplace_record.items():
+        f_copy = f.copy()
+        f_copy['_all_sport_types'] = gplace_sports[gid]
+        unique_fields.append(f_copy)
+
+    # Step 3: GPS cluster the unique locations
     clusters = []
     used     = set()
-    for i, f in enumerate(fields):
+    for i, f in enumerate(unique_fields):
         if i in used:
             continue
         cluster = [i]
         used.add(i)
         lat1 = f['original_gps_location']['latitude']
         lon1 = f['original_gps_location']['longitude']
-        for j, f2 in enumerate(fields):
+        for j, f2 in enumerate(unique_fields):
             if j in used:
                 continue
             lat2 = f2['original_gps_location']['latitude']
@@ -966,38 +1020,64 @@ def group_by_gps_only(fields):
                 cluster.append(j)
                 used.add(j)
         clusters.append(cluster)
-    print(f"  GPS-only grouping: {len(fields)} raw records -> {len(clusters)} GPS clusters")
-    return clusters
+
+    print(f"  GPS-only grouping: {len(fields)} raw records -> "
+          f"{len(unique_fields)} unique locations -> {len(clusters)} GPS clusters")
+    return clusters, unique_fields
 
 
-def populate_gps_clusters(raw_fields):
+def populate_gps_clusters(raw_fields, target_zip):
     """
     Builds facility_gps_cluster from RAW API fields using GPS-only clustering.
     Independent of new_google_earth name+ZIP logic.
+
+    Runs AFTER save_field_data so it can look up field_search_id
+    from new_google_earth using gplace_id — this links both tables.
     """
     if not raw_fields:
         print("No raw fields to cluster.")
         return
 
-    clusters    = group_by_gps_only(raw_fields)
+    # FIX: group_by_gps_only now returns (clusters, unique_fields)
+    clusters, unique_fields = group_by_gps_only(raw_fields)
     label_to_id = {v: k for k, v in SPORT_LABELS.items()}
 
     conn, cur = None, None
     try:
         conn = pool.getconn()
         cur  = conn.cursor()
+
+        # Build gplace_id -> field_search_id lookup from new_google_earth
+        # This is how we link facility_gps_cluster to new_google_earth
+        all_gplace_ids = [
+            f.get('gplace_id') for f in unique_fields
+            if f.get('gplace_id')
+        ]
+        gplace_to_fid = {}
+        if all_gplace_ids:
+            cur.execute("""
+                SELECT gplace_id, field_search_id
+                FROM public.new_google_earth
+                WHERE gplace_id = ANY(%s);
+            """, (all_gplace_ids,))
+            for row in cur.fetchall():
+                gplace_to_fid[row[0]] = row[1]
+
         inserted = 0
         updated  = 0
 
         for cluster_indices in clusters:
-            members = [raw_fields[i] for i in cluster_indices]
+            members = [unique_fields[i] for i in cluster_indices]
             anchor  = members[0]
 
-            # Count actual occurrences per sport (dict not set)
+            # Count ALL sport occurrences across all members
+            # including multiple hits for the same gplace_id
+            # e.g. way/424957090 returned for Basketball twice -> count=2
             sport_counts = defaultdict(int)
             for m in members:
-                if m['search_sport_type'] in SPORT_LABELS:
-                    sport_counts[m['search_sport_type']] += 1
+                for stype in m.get('_all_sport_types', [m['search_sport_type']]):
+                    if stype in SPORT_LABELS:
+                        sport_counts[stype] += 1
 
             all_sport_ids = set(sport_counts.keys())
             sports_label  = build_sport_label_string(all_sport_ids)
@@ -1017,8 +1097,19 @@ def populate_gps_clusters(raw_fields):
             clean_base   = clean_raw_name(anchor['field_name'] or '')
             merged_name  = f"{clean_base} ({sports_label})" if clean_base else f"Facility ({sports_label})"
             source_ids   = ','.join(m['gplace_id'] for m in members if m.get('gplace_id'))
+            # cluster_size = total raw API records merged (including duplicates)
+            raw_size = sum(len(m.get('_all_sport_types', [1])) for m in members)
 
-            print(f"  GPS CLUSTER [{len(members)}]: {merged_name} | total={sc['total_fields']}")
+            # Look up field_search_id from new_google_earth via gplace_id
+            # Try anchor first, then any member
+            anchor_fid = gplace_to_fid.get(anchor.get('gplace_id'))
+            if not anchor_fid:
+                for m in members:
+                    anchor_fid = gplace_to_fid.get(m.get('gplace_id'))
+                    if anchor_fid:
+                        break
+
+            print(f"  GPS CLUSTER [{len(members)} unique / {raw_size} raw]: {merged_name} | total={sc['total_fields']} | fid={anchor_fid}")
 
             cur.execute("""
                 SELECT cluster_id FROM public.facility_gps_cluster
@@ -1029,6 +1120,7 @@ def populate_gps_clusters(raw_fields):
             if existing:
                 cur.execute("""
                     UPDATE public.facility_gps_cluster SET
+                        field_search_id   = %s,
                         field_name        = %s,
                         formatted_address = %s,
                         postal_code       = %s,
@@ -1049,6 +1141,7 @@ def populate_gps_clusters(raw_fields):
                         updated_at        = NOW()
                     WHERE cluster_id = %s;
                 """, (
+                    anchor_fid,
                     merged_name, anchor['formatted_address'], anchor['postal_code'],
                     anchor['street'], normalize_city(anchor['city']),
                     normalize_state(anchor['state']), centroid_gps,
@@ -1056,21 +1149,22 @@ def populate_gps_clusters(raw_fields):
                     sc['baseball_fields'], sc['basketball_courts'],
                     sc['soccer_fields'],   sc['tennis_courts'],
                     sc['volleyball_courts'], sc['total_fields'],
-                    source_ids, len(members), existing[0]
+                    source_ids, raw_size, existing[0]
                 ))
                 updated += 1
             else:
                 cur.execute("""
                     INSERT INTO public.facility_gps_cluster
-                    (gplace_id, field_name, formatted_address,
+                    (gplace_id, field_search_id, field_name, formatted_address,
                      postal_code, street, city, state,
                      gps_location, gearth_link, search_sport_type,
                      baseball_fields, basketball_courts,
                      soccer_fields, tennis_courts,
                      volleyball_courts, total_fields,
                      source_field_ids, cluster_size)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (gplace_id) DO UPDATE SET
+                        field_search_id   = EXCLUDED.field_search_id,
                         field_name        = EXCLUDED.field_name,
                         formatted_address = EXCLUDED.formatted_address,
                         postal_code       = EXCLUDED.postal_code,
@@ -1090,8 +1184,8 @@ def populate_gps_clusters(raw_fields):
                         cluster_size      = EXCLUDED.cluster_size,
                         updated_at        = NOW();
                 """, (
-                    anchor['gplace_id'], merged_name,
-                    anchor['formatted_address'], anchor['postal_code'],
+                    anchor['gplace_id'], anchor_fid,
+                    merged_name, anchor['formatted_address'], anchor['postal_code'],
                     anchor['street'], normalize_city(anchor['city']),
                     normalize_state(anchor['state']),
                     centroid_gps, anchor['gearth_link'],
@@ -1099,7 +1193,7 @@ def populate_gps_clusters(raw_fields):
                     sc['baseball_fields'], sc['basketball_courts'],
                     sc['soccer_fields'],   sc['tennis_courts'],
                     sc['volleyball_courts'], sc['total_fields'],
-                    source_ids, len(members)
+                    source_ids, raw_size
                 ))
                 inserted += 1
 
@@ -1180,6 +1274,130 @@ def save_object_data(nge_objects):
         if conn: pool.putconn(conn)
 
 
+
+# ─────────────────────────────────────────────────────────
+# CHILD TABLE — GPS COORDINATE DEDUPLICATION
+# Reads from new_google_earth, clusters rows within 120m
+# and writes one row per GPS cluster into nge_gps_dedup
+# ─────────────────────────────────────────────────────────
+
+def build_gps_dedup():
+    """
+    Rebuilds nge_gps_dedup from new_google_earth using
+    pure SQL Haversine GPS clustering — no API calls.
+
+    Groups rows by physical proximity:
+      - Any two rows within 120 metres are merged into one cluster
+      - Anchor = row with lowest field_search_id in the cluster
+      - GPS = centroid (AVG lat/lon) of all merged rows
+      - Counts = SUM of each sport type across all merged rows
+    """
+    conn, cur = None, None
+    try:
+        conn = pool.getconn()
+        cur  = conn.cursor()
+
+        print("Rebuilding nge_gps_dedup...")
+
+        cur.execute("TRUNCATE public.nge_gps_dedup;")
+
+        cur.execute("""
+            INSERT INTO public.nge_gps_dedup (
+                field_search_id, facility_name, sport_label,
+                formatted_address, postal_code, city, state,
+                gps_location, gearth_link,
+                baseball_fields, basketball_courts, soccer_fields,
+                tennis_courts, volleyball_courts, total_fields,
+                cluster_size, source_field_ids
+            )
+            WITH parsed AS (
+                SELECT
+                    field_search_id,
+                    REGEXP_REPLACE(field_name, '\\s*\\([^)]*\\)\\s*$', '') AS base_name,
+                    formatted_address, postal_code, city, state,
+                    gps_location, gearth_link,
+                    SPLIT_PART(gps_location, ',', 1)::float AS lat,
+                    SPLIT_PART(gps_location, ',', 2)::float AS lon,
+                    CASE WHEN search_sport_type = 8  THEN 1 ELSE 0 END AS has_baseball,
+                    CASE WHEN search_sport_type = 9  THEN 1 ELSE 0 END AS has_basketball,
+                    CASE WHEN search_sport_type = 79 THEN 1 ELSE 0 END AS has_soccer,
+                    CASE WHEN search_sport_type = 87 THEN 1 ELSE 0 END AS has_tennis,
+                    CASE WHEN search_sport_type = 90 THEN 1 ELSE 0 END AS has_volleyball
+                FROM public.new_google_earth
+                WHERE gps_location ~ '^[-+]?[0-9]*\\.?[0-9]+,[-+]?[0-9]*\\.?[0-9]+$'
+            ),
+            clusters AS (
+                SELECT
+                    p1.field_search_id,
+                    MIN(p2.field_search_id) AS anchor_id
+                FROM parsed p1
+                JOIN parsed p2
+                  ON (6371000 * acos(
+                        LEAST(1.0, GREATEST(-1.0,
+                            cos(radians(p1.lat)) * cos(radians(p2.lat))
+                            * cos(radians(p2.lon) - radians(p1.lon))
+                            + sin(radians(p1.lat)) * sin(radians(p2.lat))
+                        ))
+                     )) <= 120
+                GROUP BY p1.field_search_id
+            ),
+            grouped AS (
+                SELECT
+                    c.anchor_id              AS field_search_id,
+                    MIN(p.base_name)         AS facility_name,
+                    AVG(p.lat)               AS avg_lat,
+                    AVG(p.lon)               AS avg_lon,
+                    MIN(p.formatted_address) AS formatted_address,
+                    MIN(p.postal_code)       AS postal_code,
+                    MIN(p.city)              AS city,
+                    MIN(p.state)             AS state,
+                    MIN(p.gearth_link)       AS gearth_link,
+                    SUM(p.has_baseball)      AS baseball_fields,
+                    SUM(p.has_basketball)    AS basketball_courts,
+                    SUM(p.has_soccer)        AS soccer_fields,
+                    SUM(p.has_tennis)        AS tennis_courts,
+                    SUM(p.has_volleyball)    AS volleyball_courts,
+                    SUM(p.has_baseball) + SUM(p.has_basketball) + SUM(p.has_soccer) +
+                    SUM(p.has_tennis)   + SUM(p.has_volleyball) AS total_fields,
+                    COUNT(*)                 AS cluster_size,
+                    STRING_AGG(p.field_search_id::TEXT, ','
+                        ORDER BY p.field_search_id) AS source_field_ids
+                FROM clusters c
+                JOIN parsed p ON p.field_search_id = c.field_search_id
+                GROUP BY c.anchor_id
+            )
+            SELECT
+                g.field_search_id,
+                g.facility_name,
+                TRIM(BOTH ', ' FROM
+                    CASE WHEN g.baseball_fields   > 0 THEN 'Baseball, '   ELSE '' END ||
+                    CASE WHEN g.basketball_courts > 0 THEN 'Basketball, ' ELSE '' END ||
+                    CASE WHEN g.soccer_fields     > 0 THEN 'Soccer, '     ELSE '' END ||
+                    CASE WHEN g.tennis_courts     > 0 THEN 'Tennis, '     ELSE '' END ||
+                    CASE WHEN g.volleyball_courts > 0 THEN 'Volleyball'   ELSE '' END
+                ),
+                g.formatted_address, g.postal_code, g.city, g.state,
+                CONCAT(ROUND(g.avg_lat::numeric,7)::TEXT,',',ROUND(g.avg_lon::numeric,7)::TEXT),
+                g.gearth_link,
+                g.baseball_fields, g.basketball_courts, g.soccer_fields,
+                g.tennis_courts, g.volleyball_courts, g.total_fields,
+                g.cluster_size, g.source_field_ids
+            FROM grouped g;
+        """)
+
+        conn.commit()
+        cur.execute("SELECT COUNT(*) FROM public.nge_gps_dedup;")
+        count = cur.fetchone()[0]
+        print(f"nge_gps_dedup rebuilt: {count} GPS clusters")
+
+    except Exception as e:
+        print(f"Error rebuilding nge_gps_dedup: {e}")
+        import traceback; traceback.print_exc()
+        if conn: conn.rollback()
+    finally:
+        if cur:  cur.close()
+        if conn: pool.putconn(conn)
+
 def log_processed(state_code, city, zip_code):
     print(f"Log Execution Metric: Processed batch for {city}, {state_code} {zip_code}")
 
@@ -1234,14 +1452,8 @@ if __name__ == "__main__":
 
     print(f"\nTotal raw API records collected: {len(all_fields)}")
 
-    # ── Step 5a: GPS-only clustering → facility_gps_cluster ─
-    print(f"\n--- facility_gps_cluster (GPS-only dedup) ---")
-    t = time.time()
-    if all_fields:
-        populate_gps_clusters(all_fields)
-    print(f"⏱ GPS clustering: {time.time()-t:.1f}s")
-
-    # ── Step 5b: Name+ZIP dedup → new_google_earth ─────────
+    # ── Step 5a: Name+ZIP dedup → new_google_earth ─────────
+    # Run FIRST so field_search_ids exist in DB before GPS clustering
     print(f"\n--- new_google_earth (name+ZIP dedup) ---")
     t = time.time()
     if all_fields:
@@ -1250,6 +1462,15 @@ if __name__ == "__main__":
     else:
         print(f"No fields found for ZIP {zip_code}.")
     print(f"⏱ save_field_data: {time.time()-t:.1f}s")
+
+    # ── Step 5b: GPS-only clustering → facility_gps_cluster ─
+    # Run AFTER save_field_data so we can look up field_search_ids
+    # from new_google_earth using gplace_id
+    print(f"\n--- facility_gps_cluster (GPS-only dedup) ---")
+    t = time.time()
+    if all_fields:
+        populate_gps_clusters(all_fields, zip_code)
+    print(f"⏱ GPS clustering: {time.time()-t:.1f}s")
 
     # ── Step 6: SQL spatial cleanup ────────────────────────
     t = time.time()
@@ -1307,6 +1528,11 @@ if __name__ == "__main__":
 
     if nge_object:
         save_object_data(nge_object)
+
+    # ── Step 10: Rebuild GPS dedup child table ─────────────
+    t = time.time()
+    build_gps_dedup()
+    print(f"⏱ nge_gps_dedup rebuild: {time.time()-t:.1f}s")
 
     print(f"\n⏱ TOTAL RUN TIME: {time.time()-t_total:.1f}s")
     print("Data input process completed successfully.")
